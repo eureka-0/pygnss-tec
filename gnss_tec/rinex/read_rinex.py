@@ -8,7 +8,7 @@ from pathlib import Path
 import polars as pl
 import pymap3d as pm
 
-from .._core import _read_obs
+from .._core import _read_obs  # ty:ignore[unresolved-import]
 
 ALL_CONSTELLATIONS = {
     "C": "BDS",
@@ -40,7 +40,7 @@ LEAP_SECONDS = [
     (pl.datetime(2009, 1, 1), pl.duration(seconds=15)),
     (pl.datetime(2012, 7, 1), pl.duration(seconds=16)),
     (pl.datetime(2015, 7, 1), pl.duration(seconds=17)),
-    (pl.datetime(2016, 12, 31), pl.duration(seconds=18)),
+    (pl.datetime(2017, 1, 1), pl.duration(seconds=18)),
 ]
 """List of leap seconds as (datetime, duration) tuples."""
 

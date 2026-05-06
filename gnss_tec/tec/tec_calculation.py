@@ -266,6 +266,7 @@ def calc_tec_from_df(
     """
     lf = (
         df.lazy()
+        .with_columns(pl.col("prn").cast(pl.Categorical))
         # Filter by minimum elevation angle and constellations
         .filter(
             pl.col("elevation") >= config.min_elevation,
@@ -291,12 +292,16 @@ def calc_tec_from_df(
                 .dt.total_seconds()
             )
             .collect()
-            .item()
+            .item()  # ty:ignore[unresolved-attribute]
         )
     sampling_config = get_sampling_config(sampling_interval)
 
     # Determine if the time column is in UTC or GPS time
-    is_utc = lf.head(1).collect().get_column("time")[0].tzinfo.key == "UTC"
+    head = lf.head(1).collect().get_column("time")  # ty:ignore[unresolved-attribute]
+    if head is None or len(head) == 0:
+        raise ValueError("Insufficient data to determine time column type.")
+    t0 = head[0]
+    is_utc = t0.tzinfo is not None and t0.tzinfo.key == "UTC"
     leap_seconds = get_leap_seconds("time") if is_utc else pl.duration(seconds=0)
     lf = lf.with_columns(
         # Adjust time to GPS time for correctly joining with bias data
