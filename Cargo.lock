@@ -88,9 +88,9 @@ dependencies = [
 
 [[package]]
 name = "anise"
-version = "0.8.0"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "251d223c4e292141d72964f961000b37199953617e36eee6c651262ee1d57c65"
+checksum = "f057c78c09902a74e774def6074ffa5a91816ce6a65d4e37d47dc68adf202c03"
 dependencies = [
  "bytes",
  "const_format",
@@ -98,6 +98,7 @@ dependencies = [
  "csv",
  "der",
  "hifitime",
+ "hyperdual",
  "indexmap 2.12.1",
  "log",
  "memmap2",
@@ -999,8 +1000,9 @@ dependencies = [
 
 [[package]]
 name = "gnss-qc-traits"
-version = "0.4.0"
-source = "git+https://github.com/nav-solutions/qc-traits?rev=63200d41bab2efa7d10082ae43a113d360722342#63200d41bab2efa7d10082ae43a113d360722342"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39df3369bcc428f32af9d021397e6a27f2dfee9b858dc53ddeb71a0c615d4001"
 dependencies = [
  "maud",
  "thiserror 2.0.17",
@@ -1009,7 +1011,8 @@ dependencies = [
 [[package]]
 name = "gnss-rs"
 version = "2.6.0"
-source = "git+https://github.com/nav-solutions/gnss?rev=dc4d4c2d413a3be90a3fa08a6ab29079eec13923#dc4d4c2d413a3be90a3fa08a6ab29079eec13923"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ab9d30c6f458640e76f9b53e001b5db97c15955621987fd603d181c3a20b497"
 dependencies = [
  "bincode",
  "geo",
@@ -1191,6 +1194,16 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "hyperdual"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49bed4e4958a0d14b552df6ecaf051a3b1252120fddfb38e1d829870e7f3a21a"
+dependencies = [
+ "nalgebra",
+ "num-traits",
+]
 
 [[package]]
 name = "i_float"
@@ -2156,7 +2169,8 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 [[package]]
 name = "rinex"
 version = "0.22.0"
-source = "git+https://github.com/nav-solutions/rinex.git?branch=main#37c43d469d50d7ffff9d12e95cb4c93811a0ad5d"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06ea2e0db35ff726e319b7e7d0db1f9a5bc252f1dd1de95244cd2a4d528dc220"
 dependencies = [
  "anise",
  "bitflags",
@@ -2678,8 +2692,9 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
 name = "ublox"
-version = "0.7.0"
-source = "git+https://github.com/ublox-rs/ublox?rev=d43c425ee2904d577d06e70d7fbd80d98132a8a6#d43c425ee2904d577d06e70d7fbd80d98132a8a6"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bcc96bd937066775fb87034e1dbf6d7165a8975c74ddec1105e31b4a050538b"
 dependencies = [
  "bitflags",
  "chrono",
@@ -2691,8 +2706,9 @@ dependencies = [
 
 [[package]]
 name = "ublox_derive"
-version = "0.3.0"
-source = "git+https://github.com/ublox-rs/ublox?rev=d43c425ee2904d577d06e70d7fbd80d98132a8a6#d43c425ee2904d577d06e70d7fbd80d98132a8a6"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5eda7d1c1151a40ae85c7c065a19959909573535034e18e1015b738993cd2c0"
 dependencies = [
  "proc-macro2",
  "quote",
