@@ -1,3 +1,4 @@
+import polars as pl
 from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
@@ -6,6 +7,7 @@ import gnss_tec as gt
 def test_read_rinex_obs_v2(rinex_obs_v2, rinex_nav_v2):
     header, lf = gt.read_rinex_obs(rinex_obs_v2, rinex_nav_v2)
     df = lf.collect()
+    assert isinstance(df, pl.DataFrame)
 
     assert header.version.startswith("2.")
     assert header.sampling_interval == 30
@@ -24,6 +26,8 @@ def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3, rinex_nav_v3):
     header2, lf = gt.read_rinex_obs(rinex_obs_v3, rinex_nav_v3)
     df_hatanaka = lf_hatanaka.collect()
     df = lf.collect()
+    assert isinstance(df_hatanaka, pl.DataFrame)
+    assert isinstance(df, pl.DataFrame)
 
     assert header1 == header2
     assert header1.version.startswith("3.")
