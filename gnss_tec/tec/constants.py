@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -47,6 +49,11 @@ DEFAULT_C2_CODES: dict[str, dict[str, list[str]]] = {
     },
 }
 
+VALID_RX_BIAS = {"external", "mstd", "lsq", None}
+VALID_MAPPING_FUNCTIONS = {"slm", "mslm"}
+VALID_MISSING_BIAS = {"drop", "warn", "keep_uncorrected", "error"}
+CODE_PATTERN = re.compile(r"^C\d[A-Z]?$")
+
 
 @dataclass(frozen=True, kw_only=True)
 class TECConfig:
@@ -87,6 +94,14 @@ class TECConfig:
 
     retain_intermediate: str | Iterable[str] | None | Literal["all"] = None
     """Names of intermediate columns to retain in the output DataFrame."""
+
+    missing_bias: Literal["drop", "warn", "keep_uncorrected", "error"] = "drop"
+    """How to handle observations whose matching bias is not available.
+        - "drop": Drop observations without required bias data.
+        - "warn": Drop observations without required bias data and emit a warning.
+        - "keep_uncorrected": Keep observations and treat missing bias as zero.
+        - "error": Raise an error if any required bias is missing.
+    """
 
     @property
     def ipp_height_m(self) -> float:
@@ -140,7 +155,7 @@ class TECConfig:
     @staticmethod
     def validate_codes(codes, default) -> dict[str, dict[str, list[str]]]:
         if not codes:
-            return default
+            return copy.deepcopy(default)
 
         codes = dict(codes)
         unknown = codes.keys() - SUPPORTED_RINEX_VERSIONS
@@ -153,7 +168,7 @@ class TECConfig:
         validated_codes = {}
         for ver in SUPPORTED_RINEX_VERSIONS:
             if ver not in codes:
-                validated_codes[ver] = default[ver]
+                validated_codes[ver] = copy.deepcopy(default[ver])
                 continue
 
             allowed = set(SUPPORTED_CONSTELLATIONS.keys())
@@ -163,13 +178,26 @@ class TECConfig:
                     f"Invalid constellations in codes: {invalid}. "
                     f"Allowed constellations are {allowed}."
                 )
-            validated_codes[ver] = default[ver] | dict(codes[ver])
+            validated_codes[ver] = copy.deepcopy(default[ver]) | {
+                const: list(code_list) for const, code_list in codes[ver].items()
+            }
+
+            for const, code_list in validated_codes[ver].items():
+                invalid_codes = [
+                    code for code in code_list if not CODE_PATTERN.match(code)
+                ]
+                if invalid_codes:
+                    raise ValueError(
+                        f"Invalid observation codes for RINEX {ver} {const}: "
+                        f"{invalid_codes}. Codes must look like 'C1C' or 'C1'."
+                    )
         return validated_codes
 
     def __post_init__(self):
         # Validate constellations
         allowed = set(SUPPORTED_CONSTELLATIONS.keys())
-        actual = set(self.constellations)
+        constellations = self.constellations.upper()
+        actual = set(constellations)
 
         invalid = actual - allowed
         if invalid:
@@ -177,6 +205,33 @@ class TECConfig:
                 f"Invalid constellations {self.constellations!r}; "
                 f"allowed letters are subset of {''.join(sorted(allowed))!r}."
             )
+        if not constellations:
+            raise ValueError(
+                "constellations must contain at least one constellation code."
+            )
+
+        if not 0 <= self.min_elevation <= 90:
+            raise ValueError("min_elevation must be between 0 and 90 degrees.")
+        if self.min_snr < 0:
+            raise ValueError("min_snr must be non-negative.")
+        if self.ipp_height <= 0:
+            raise ValueError("ipp_height must be positive.")
+        if self.rx_bias not in VALID_RX_BIAS:
+            raise ValueError(
+                f"Invalid rx_bias {self.rx_bias!r}; expected one of {VALID_RX_BIAS}."
+            )
+        if self.mapping_function not in VALID_MAPPING_FUNCTIONS:
+            raise ValueError(
+                f"Invalid mapping_function {self.mapping_function!r}; "
+                f"expected one of {VALID_MAPPING_FUNCTIONS}."
+            )
+        if self.missing_bias not in VALID_MISSING_BIAS:
+            raise ValueError(
+                f"Invalid missing_bias {self.missing_bias!r}; "
+                f"expected one of {VALID_MISSING_BIAS}."
+            )
+
+        object.__setattr__(self, "constellations", constellations)
 
         # Set default codes if not provided
         object.__setattr__(
