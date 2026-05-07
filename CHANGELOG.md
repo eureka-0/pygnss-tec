@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 
 
+## [0.4.1](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.1) - 2026-05-07
+
+### Changed
+
+- Update `rinex` crate to v0.22.0
+
 ## [0.4.0](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.0) - 2025-12-15
 
 ### Added
