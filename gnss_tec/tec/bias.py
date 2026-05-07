@@ -14,10 +14,10 @@ from scipy.optimize import lsq_linear, minimize_scalar
 
 def _read_bias_file(fn: str | Path) -> pl.LazyFrame:
     if str(fn).endswith(".gz"):
-        with gzip.open(fn, "rt") as f:
+        with gzip.open(fn, "rt", encoding="utf-8") as f:
             lines = f.readlines()
     else:
-        with open(fn, "r") as f:
+        with open(fn, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
     if not lines:

@@ -1,3 +1,4 @@
+import gzip
 from datetime import datetime
 
 import polars as pl
@@ -53,6 +54,30 @@ def test_read_bias_accepts_multiple_files(bias, bias_gfz):
 
     assert combined.height == cas.height + gfz.height
     assert combined.width == cas.width
+
+
+def test_read_bias_reads_utf8_gzip_header(tmp_path):
+    bias_file = tmp_path / "utf8_header.BIA.gz"
+    bias_file.write_bytes(
+        gzip.compress(
+            "\n".join(
+                [
+                    "%=BIA 1.00 GFZ 2024:011:61866 IGS 2024:010:00000 2024:010:86399 R 00000001",
+                    "* Operational Multi ‐ GNSS Global Ionosphere Maps",
+                    "+BIAS/SOLUTION",
+                    "*BIAS SVN_ PRN STATION__ OBS1 OBS2 BIAS_START____ BIAS_END______ UNIT __ESTIMATED_VALUE____ _STD_DEV___",
+                    " DSB       G01           C1C  C2W  2024:010:00000 2024:010:86399 ns   1.000000000000000E+00 1.000000E-01",
+                    "-BIAS/SOLUTION",
+                ]
+            ).encode()
+        )
+    )
+
+    df = gt.read_bias(bias_file).collect()
+    assert isinstance(df, pl.DataFrame)
+
+    assert df.height == 1
+    assert df.get_column("bias_end").item() == datetime(2024, 1, 10, 23, 59, 59)
 
 
 def test_read_bias_rejects_bad_inputs(tmp_path):
