@@ -7,12 +7,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 
+## [0.4.2](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.2) - 2026-05-07
+
+### Added
+
+- Support timezone-naive GPS time in `calc_tec_from_df` and `calc_tec_from_parquet`, while continuing to support timezone-aware UTC time
+- Add `TECConfig.missing_bias` to control how unmatched satellite or receiver DCB values are handled
+
+### Changed
+
+- Improve `TECConfig` validation for constellations, elevation limits, SNR, IPP height, receiver bias mode, mapping function, and observation code formats
+- Preserve independent default observation-code presets when user overrides are supplied
+- Update dependencies and release workflows for the 0.4.2 release
+
+### Fixed
+
+- Add clearer validation for missing RINEX header metadata when reading observations from Parquet
+- Add required-column checks in `calc_tec_from_df` before TEC calculation starts
+
 
 ## [0.4.1](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.1) - 2026-05-07
 
 ### Changed
 
 - Update `rinex` crate to v0.22.0
+
 
 ## [0.4.0](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.0) - 2025-12-15
 
@@ -21,11 +40,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Add modified single layer model (MSLM) as an additional mapping function option
 - Support calculating TEC from RINEX v2 files
 
+
 ## [0.3.1](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.3.1) - 2025-12-10
 
 ### Fixed
 
 - Update `rinex` crate to main branch to fix RINEX v3 Hatanaka compressed file reading issue ([#397](https://github.com/nav-solutions/rinex/issues/397))
+
 
 ## [0.3.0](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.3.0) - 2025-12-09
 
@@ -49,6 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Improve performance of RINEX file reading
 - Fix observable columns missing when reading RINEX 2 files using `pivot=True`
 
+
 ## [0.2.0](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.2.0) - 2025-11-28
 
 ### Added
@@ -60,6 +82,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 
 - Add `pivot` parameter to `read_rinex_obs` function
+
 
 ## [0.1.0](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.1.0) - 2025-11-24
 
