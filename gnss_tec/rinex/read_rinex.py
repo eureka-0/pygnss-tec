@@ -125,10 +125,35 @@ class RinexObsHeader:
         }
 
     @staticmethod
+    def validate_metadata(metadata: dict[str, str]) -> None:
+        required = {
+            "version",
+            "constellation",
+            "marker_name",
+            "marker_type",
+            "rx_ecef_x",
+            "rx_ecef_y",
+            "rx_ecef_z",
+            "rx_geodetic_lat",
+            "rx_geodetic_lon",
+            "rx_geodetic_alt",
+            "sampling_interval",
+            "leap_seconds",
+        }
+        missing = sorted(required - set(metadata))
+        if missing:
+            raise ValueError(
+                "Parquet metadata is missing required RINEX header fields: "
+                f"{', '.join(missing)}. Save parsed observations with "
+                "`metadata=header.to_metadata()`."
+            )
+
+    @staticmethod
     def from_metadata(metadata: dict[str, str]) -> RinexObsHeader:
         """
         Create a RinexObsHeader from a dictionary of Parquet file metadata.
         """
+        RinexObsHeader.validate_metadata(metadata)
         sampling_interval = (
             int(metadata["sampling_interval"])
             if metadata["sampling_interval"]
