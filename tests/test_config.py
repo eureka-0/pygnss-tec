@@ -33,12 +33,46 @@ def test_tec_config_merges_partial_custom_code_priorities():
     assert config.c1_priority("3")["G_C1C"] == 1
 
 
+def test_tec_config_defensively_copies_code_priorities():
+    custom_codes = {"3": {"G": ["C1X", "C1C"]}}
+    config = TECConfig(c1_codes=custom_codes)
+    custom_codes["3"]["G"].append("C1W")
+    config.c1_codes["2"]["G"].append("C1X")
+
+    assert config.c1_codes["3"]["G"] == ["C1X", "C1C"]
+    assert TECConfig().c1_codes["3"]["G"] == ["C1W", "C1C", "C1X"]
+    assert TECConfig().c1_codes["2"]["G"] == ["C1"]
+
+
 @pytest.mark.parametrize(
     "kwargs", [{"c1_codes": {"4": {"G": ["C1C"]}}}, {"c2_codes": {"3": {"E": ["C5Q"]}}}]
 )
 def test_tec_config_rejects_invalid_code_maps(kwargs):
     with pytest.raises(ValueError):
         TECConfig(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"mapping_function": "bad"},
+        {"rx_bias": "bad"},
+        {"missing_bias": "bad"},
+        {"min_elevation": -1},
+        {"min_elevation": 91},
+        {"min_snr": -1},
+        {"ipp_height": 0},
+        {"constellations": ""},
+        {"c1_codes": {"3": {"G": ["L1C"]}}},
+    ],
+)
+def test_tec_config_rejects_invalid_values(kwargs):
+    with pytest.raises(ValueError):
+        TECConfig(**kwargs)
+
+
+def test_tec_config_normalizes_constellations():
+    assert TECConfig(constellations="cg").constellations == "CG"
 
 
 def test_sampling_config_thresholds():

@@ -53,6 +53,34 @@ def test_calc_tec_from_df_matches_rinex(rinex_obs_v3, rinex_nav_v3, bias):
     assert_valid_tec_frame(from_df)
 
 
+def test_calc_tec_from_df_accepts_gps_time(rinex_obs_v3, rinex_nav_v3, bias):
+    utc_header, utc_lf = gt.read_rinex_obs(rinex_obs_v3, rinex_nav_v3)
+    gps_header, gps_lf = gt.read_rinex_obs(rinex_obs_v3, rinex_nav_v3, utc=False)
+    config = gt.TECConfig(retain_intermediate="mf")
+
+    from_utc = gt.calc_tec_from_df(utc_lf, utc_header, bias, config).collect()
+    from_gps = gt.calc_tec_from_df(gps_lf, gps_header, bias, config).collect()
+    assert isinstance(from_utc, pl.DataFrame)
+    assert isinstance(from_gps, pl.DataFrame)
+
+    assert_frame_equal(from_gps, from_utc, check_exact=False, abs_tol=1e-8)
+
+
+def test_calc_tec_from_df_rejects_non_utc_timezone(rinex_obs_v3, rinex_nav_v3):
+    header, lf = gt.read_rinex_obs(rinex_obs_v3, rinex_nav_v3)
+    lf = lf.with_columns(pl.col("time").dt.convert_time_zone("Asia/Shanghai"))
+
+    with pytest.raises(ValueError, match="UTC timezone or be timezone-naive"):
+        gt.calc_tec_from_df(lf, header).collect()
+
+
+def test_calc_tec_from_df_requires_navigation_columns(rinex_obs_v3):
+    header, lf = gt.read_rinex_obs(rinex_obs_v3)
+
+    with pytest.raises(ValueError, match="azimuth, elevation"):
+        gt.calc_tec_from_df(lf, header).collect()
+
+
 def test_calc_tec_from_parquet_matches_dataframe(
     tmp_path, rinex_obs_v3, rinex_nav_v3, bias
 ):
@@ -67,6 +95,32 @@ def test_calc_tec_from_parquet_matches_dataframe(
     assert isinstance(from_df, pl.DataFrame)
 
     assert_frame_equal(from_parquet, from_df, check_exact=False, abs_tol=1e-8)
+
+
+def test_calc_tec_from_parquet_preserves_gps_time(
+    tmp_path, rinex_obs_v3, rinex_nav_v3, bias
+):
+    header, lf = gt.read_rinex_obs(rinex_obs_v3, rinex_nav_v3)
+    gps_header, gps_lf = gt.read_rinex_obs(rinex_obs_v3, rinex_nav_v3, utc=False)
+    parquet_fn = tmp_path / "gps_obs.parquet"
+    gps_lf.sink_parquet(parquet_fn, metadata=gps_header.to_metadata())
+    config = gt.TECConfig(retain_intermediate="mf")
+
+    from_parquet = gt.calc_tec_from_parquet(parquet_fn, bias, config).collect()
+    from_df = gt.calc_tec_from_df(lf, header, bias, config).collect()
+    assert isinstance(from_parquet, pl.DataFrame)
+    assert isinstance(from_df, pl.DataFrame)
+
+    assert_frame_equal(from_parquet, from_df, check_exact=False, abs_tol=1e-8)
+
+
+def test_calc_tec_from_parquet_rejects_missing_metadata(tmp_path, rinex_obs_v3):
+    _, lf = gt.read_rinex_obs(rinex_obs_v3)
+    parquet_fn = tmp_path / "missing_metadata.parquet"
+    lf.sink_parquet(parquet_fn)
+
+    with pytest.raises(ValueError, match="Parquet metadata is missing"):
+        gt.calc_tec_from_parquet(parquet_fn).collect()
 
 
 def test_calc_tec_without_bias_uses_uncorrected_stec(rinex_obs_v3, rinex_nav_v3):
@@ -174,3 +228,30 @@ def test_min_elevation_filters_tec_output(rinex_obs_v3, rinex_nav_v3, bias):
 
     assert high_elevation.height < baseline.height
     assert cast(float, high_elevation.get_column("elevation").min()) >= 60
+
+
+def test_missing_external_receiver_bias_can_be_kept_uncorrected(
+    rinex_obs_v3, rinex_nav_v3, bias
+):
+    dropped = gt.calc_tec_from_rinex(
+        rinex_obs_v3,
+        rinex_nav_v3,
+        bias,
+        gt.TECConfig(retain_intermediate="rx_bias"),
+        station="TEST",
+    ).collect()
+    kept = gt.calc_tec_from_rinex(
+        rinex_obs_v3,
+        rinex_nav_v3,
+        bias,
+        gt.TECConfig(
+            missing_bias="keep_uncorrected", retain_intermediate=["rx_bias", "tx_bias"]
+        ),
+        station="TEST",
+    ).collect()
+    assert isinstance(dropped, pl.DataFrame)
+    assert isinstance(kept, pl.DataFrame)
+
+    assert dropped.height == 0
+    assert kept.height > 0
+    assert kept.get_column("rx_bias").null_count() == kept.height
