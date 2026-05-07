@@ -199,7 +199,8 @@ header, lf = gt.read_rinex_obs(
 # Perform any custom preprocessing on lf if needed
 # ...
 
-# Note: Make sure to include header information when saving to parquet
+# Note: Make sure to include header information when saving to parquet. Polars also
+# preserves whether the time column is timezone-aware UTC or timezone-naive GPS time.
 lf.sink_parquet("./data/cibg_obs_2024010.parquet", metadata=header.to_metadata())
 
 tec_lf = gt.calc_tec_from_parquet(
@@ -240,7 +241,8 @@ print(gt.TECConfig())
 #     },
 #     rx_bias='external',
 #     mapping_function='slm',
-#     retain_intermediate=None
+#     retain_intermediate=None,
+#     missing_bias='drop'
 # )
 ```
 
@@ -254,6 +256,9 @@ The meaning of each parameter is as follows:
 - `rx_bias`: Specifies how to handle receiver bias. It can be set to 'external' to use an external DCB file for correction, 'mstd' to use the minimum standard deviation method for estimation, 'lsq' to use least squares estimation, or `None` to skip receiver bias correction. Note that the receiver bias estimation is only applicable after the satellite bias has been corrected using an external DCB file (e.g., from IGS). If no external DCB file is provided, this parameter will be ignored. The 'mstd' and 'lsq' methods are for stations that are not included in the external DCB file.
 - `mapping_function`: The mapping function to use for converting slant TEC to vertical TEC. It can be set to 'slm' for the Single Layer Model or 'mslm' for the Modified Single Layer Model.
 - `retain_intermediate`: Names of intermediate columns to retain in the output DataFrame. It can be set to `None` to discard all intermediate columns, 'all' to retain all intermediate columns, or a list of column names to keep specific ones.
+- `missing_bias`: Specifies how to handle observations whose satellite or receiver bias cannot be matched from the provided DCB file. It can be set to 'drop' to keep the previous behavior, 'warn' to drop and emit a warning, 'keep_uncorrected' to retain observations and treat missing bias as zero, or 'error' to fail fast.
+
+When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware `datetime[ms, UTC]` for UTC time, and timezone-naive `datetime[ms]` for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
 
 ## Benchmarks (on M2 Pro 12-Core CPU)
 

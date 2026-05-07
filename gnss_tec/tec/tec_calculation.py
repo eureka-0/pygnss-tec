@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
@@ -13,6 +14,62 @@ from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
 from .bias import estimate_rx_bias, read_bias
 from .constants import SIGNAL_FREQ, TECConfig, c, get_sampling_config
 from .mapping_func import modified_single_layer_model, single_layer_model
+
+
+def _require_columns(lf: pl.LazyFrame, columns: Iterable[str], context: str) -> None:
+    available = set(lf.collect_schema().names())
+    missing = sorted(set(columns) - available)
+    if missing:
+        raise ValueError(
+            f"{context} requires columns that are missing: {', '.join(missing)}."
+        )
+
+
+def _infer_time_kind(lf: pl.LazyFrame) -> Literal["utc", "gps"]:
+    dtype = lf.collect_schema()["time"]
+    if not isinstance(dtype, pl.Datetime):
+        raise ValueError(
+            "Input time column must be a Polars Datetime. Use timezone-aware UTC "
+            "datetime values for UTC or naive datetime values for GPS time."
+        )
+
+    if dtype.time_zone == "UTC":
+        return "utc"
+    elif dtype.time_zone is None:
+        return "gps"
+    else:
+        raise ValueError(
+            "Input time column must use the UTC timezone or be timezone-naive "
+            f"GPS time, got timezone {dtype.time_zone!r}."
+        )
+
+
+def _leap_seconds_duration(header: RinexObsHeader) -> pl.Expr:
+    if header.leap_seconds is not None:
+        return pl.duration(seconds=header.leap_seconds)
+    return get_leap_seconds("time")
+
+
+def _handle_missing_bias(
+    codes_lf: pl.LazyFrame, required_cols: list[str], config: TECConfig
+) -> pl.LazyFrame:
+    if not required_cols or config.missing_bias == "keep_uncorrected":
+        return codes_lf
+
+    missing_expr = pl.any_horizontal([pl.col(col).is_null() for col in required_cols])
+    if config.missing_bias in {"warn", "error"}:
+        missing_count = codes_lf.filter(missing_expr).select(pl.len()).collect().item()  # ty:ignore[unresolved-attribute]
+        if missing_count:
+            message = (
+                f"{missing_count} station/PRN/code/day combinations are missing "
+                f"required bias columns: {', '.join(required_cols)}."
+            )
+            if config.missing_bias == "error":
+                raise ValueError(message)
+            else:
+                warnings.warn(message, stacklevel=3)
+
+    return codes_lf.filter(~missing_expr)
 
 
 def _coalesce_observations(
@@ -56,6 +113,7 @@ def _coalesce_observations(
 
     # ---- 2. Join bias data (if provided). ----
     if bias_lf is not None:
+        required_bias_cols = ["tx_bias"]
         tx_bias_lf = bias_lf.filter(pl.col("station").is_null()).select(
             "prn",
             C1_code="obs1",
@@ -63,9 +121,12 @@ def _coalesce_observations(
             date=pl.col("bias_start").dt.date(),
             tx_bias=-pl.col("estimated_value"),
         )
-        codes_lf = codes_lf.join(tx_bias_lf, on=["prn", "C1_code", "C2_code", "date"])
+        codes_lf = codes_lf.join(
+            tx_bias_lf, on=["prn", "C1_code", "C2_code", "date"], how="left"
+        )
 
         if config.rx_bias == "external":
+            required_bias_cols.append("rx_bias")
             rx_bias_lf = bias_lf.drop_nulls("station").select(
                 "station",
                 constellation="prn",
@@ -77,7 +138,9 @@ def _coalesce_observations(
             codes_lf = codes_lf.join(
                 rx_bias_lf,
                 on=["station", "constellation", "C1_code", "C2_code", "date"],
+                how="left",
             )
+        codes_lf = _handle_missing_bias(codes_lf, required_bias_cols, config)
 
     # ---- 3. Keep only the highest priority codes for C1 and C2. ----
     codes_lf = (
@@ -264,9 +327,14 @@ def calc_tec_from_df(
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
     """
+    input_lf = df.lazy()
+    _require_columns(
+        input_lf, ["time", "station", "prn", "azimuth", "elevation"], "calc_tec_from_df"
+    )
+    time_kind = _infer_time_kind(input_lf)
+
     lf = (
-        df.lazy()
-        .with_columns(pl.col("prn").cast(pl.Categorical))
+        input_lf.with_columns(pl.col("prn").cast(pl.Categorical))
         # Filter by minimum elevation angle and constellations
         .filter(
             pl.col("elevation") >= config.min_elevation,
@@ -296,17 +364,15 @@ def calc_tec_from_df(
         )
     sampling_config = get_sampling_config(sampling_interval)
 
-    # Determine if the time column is in UTC or GPS time
-    head = lf.head(1).collect().get_column("time")  # ty:ignore[unresolved-attribute]
-    if head is None or len(head) == 0:
-        raise ValueError("Insufficient data to determine time column type.")
-    t0 = head[0]
-    is_utc = t0.tzinfo is not None and t0.tzinfo.key == "UTC"
-    leap_seconds = get_leap_seconds("time") if is_utc else pl.duration(seconds=0)
-    lf = lf.with_columns(
-        # Adjust time to GPS time for correctly joining with bias data
-        pl.col("time").add(leap_seconds).dt.replace_time_zone(None)
-    )
+    lf = lf.with_columns(_leap_seconds_duration(header).alias("_leap_seconds"))
+    leap_seconds = pl.col("_leap_seconds")
+    if time_kind == "utc":
+        lf = lf.with_columns(
+            # Adjust UTC to GPS time for correctly joining with bias data
+            pl.col("time").add(leap_seconds).dt.replace_time_zone(None)
+        )
+    else:
+        lf = lf.with_columns(pl.col("time").dt.replace_time_zone(None))
 
     bias_lf = None if bias_fn is None else read_bias(bias_fn)
     if header.version.startswith("2"):
@@ -418,7 +484,7 @@ def calc_tec_from_df(
 
         lf = lf.with_columns(
             # Convert biases from ns to TECU
-            pl.col("tx_bias").mul(tecu_per_ns)
+            pl.col("tx_bias").fill_null(0).mul(tecu_per_ns)
         )
 
         if config.rx_bias is None:
@@ -451,6 +517,8 @@ def calc_tec_from_df(
             # Adjust time back to UTC
             pl.col("time").sub(leap_seconds).dt.replace_time_zone("UTC"),
         )
+
+    lf = lf.drop("_leap_seconds")
 
     if config.retain_intermediate != "all":
         cols_to_retain = set()
