@@ -30,6 +30,7 @@ dev = [
   "ipykernel>=6.31.0",
   "matplotlib>=3.9.4",
   "pandas>=2.3.3",
+  "pygithub>=2.9.1",
   "pytest>=8.4.2",
   "ruff>=0.14.6",
   "scipy-stubs>=1.15.3.0",
