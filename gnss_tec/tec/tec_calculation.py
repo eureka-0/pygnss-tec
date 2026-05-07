@@ -264,6 +264,14 @@ def calc_tec_from_df(
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
     """
+    columns = df.collect_schema().names()
+    necessary_cols = {"time", "station", "prn", "elevation", "azimuth"}
+    if not necessary_cols.issubset(columns):
+        missing = necessary_cols - set(columns)
+        raise ValueError(
+            f"Input DataFrame is missing necessary columns: {', '.join(missing)}"
+        )
+
     lf = (
         df.lazy()
         .with_columns(pl.col("prn").cast(pl.Categorical))
