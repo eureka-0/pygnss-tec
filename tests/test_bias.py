@@ -11,8 +11,8 @@ import gnss_tec as gt
 @pytest.mark.parametrize(
     ("fixture_name", "expected_rows", "expected_end"),
     [
-        ("bias", 6082, datetime(2024, 1, 11)),
-        ("bias_gfz", 3730, datetime(2024, 1, 10, 23, 59, 59)),
+        ("bias", 6082, datetime.fromisoformat("2024-01-11")),
+        ("bias_gfz", 3730, datetime.fromisoformat("2024-01-10T23:59:59")),
     ],
 )
 def test_read_bias_schema_and_dates(request, fixture_name, expected_rows, expected_end):
@@ -37,7 +37,8 @@ def test_read_bias_schema_and_dates(request, fixture_name, expected_rows, expect
     assert df.schema["prn"] == pl.Categorical
     assert df.schema["station"] == pl.Categorical
     assert df.schema["estimated_value"] == pl.Float64
-    assert df.get_column("bias_start").min() == datetime(2024, 1, 10)
+    # Bias SINEX uses timezone-naive GPS wall times.
+    assert df.get_column("bias_start").min() == datetime.fromisoformat("2024-01-10")
     assert df.get_column("bias_end").max() == expected_end
     assert df.get_column("unit").cast(pl.String).unique().to_list() == ["ns"]
     assert df.get_column("station").null_count() > 0
@@ -60,15 +61,13 @@ def test_read_bias_reads_utf8_gzip_header(tmp_path):
     bias_file = tmp_path / "utf8_header.BIA.gz"
     bias_file.write_bytes(
         gzip.compress(
-            "\n".join(
-                [
-                    "%=BIA 1.00 GFZ 2024:011:61866 IGS 2024:010:00000 2024:010:86399 R 00000001",
-                    "* Operational Multi ‐ GNSS Global Ionosphere Maps",
-                    "+BIAS/SOLUTION",
-                    "*BIAS SVN_ PRN STATION__ OBS1 OBS2 BIAS_START____ BIAS_END______ UNIT __ESTIMATED_VALUE____ _STD_DEV___",
-                    " DSB       G01           C1C  C2W  2024:010:00000 2024:010:86399 ns   1.000000000000000E+00 1.000000E-01",
-                    "-BIAS/SOLUTION",
-                ]
+            (
+                "%=BIA 1.00 GFZ 2024:011:61866 IGS 2024:010:00000 2024:010:86399 R 00000001\n"
+                "* Operational Multi ‐ GNSS Global Ionosphere Maps\n"
+                "+BIAS/SOLUTION\n"
+                "*BIAS SVN_ PRN STATION__ OBS1 OBS2 BIAS_START____ BIAS_END______ UNIT __ESTIMATED_VALUE____ _STD_DEV___\n"
+                " DSB       G01           C1C  C2W  2024:010:00000 2024:010:86399 ns   1.000000000000000E+00 1.000000E-01\n"
+                "-BIAS/SOLUTION"
             ).encode()
         )
     )
@@ -77,7 +76,9 @@ def test_read_bias_reads_utf8_gzip_header(tmp_path):
     assert isinstance(df, pl.DataFrame)
 
     assert df.height == 1
-    assert df.get_column("bias_end").item() == datetime(2024, 1, 10, 23, 59, 59)
+    assert df.get_column("bias_end").item() == datetime.fromisoformat(
+        "2024-01-10T23:59:59"
+    )
 
 
 def test_read_bias_rejects_bad_inputs(tmp_path):

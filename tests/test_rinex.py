@@ -15,12 +15,27 @@ def test_read_rinex_obs_v2(rinex_obs_v2, rinex_nav_v2):
     assert header.marker_name == "DGAR"
     assert header.constellation == "MIXED"
     assert header.sampling_interval == 30
-    assert df.shape[0] == 57198
+    # Sum of the satellite counts in the 2,880 original epoch headers.
+    assert df.shape[0] == 81810
     assert_has_columns(
         df, ["time", "station", "prn", "azimuth", "elevation", "C1", "L1"]
     )
     assert df.get_column("time").dtype == pl.Datetime("ms", "UTC")
     assert df.get_column("elevation").is_between(-90, 90).all()
+
+    # These fields are blank in the original RINEX 2 records. rinex 0.22
+    # incorrectly populated them when parsing the final observation line.
+    # The epoch headers use GPS time, 18 seconds ahead of UTC.
+    e07 = df.filter(
+        pl.col("prn") == "E07",
+        pl.col("time") == pl.datetime(2024, 1, 10, 17, 14, 12, time_zone="UTC"),
+    )
+    r17 = df.filter(
+        pl.col("prn") == "R17",
+        pl.col("time") == pl.datetime(2024, 1, 10, 18, 29, 42, time_zone="UTC"),
+    )
+    assert e07.select("L7").item() is None
+    assert r17.select("C7").item() is None
 
 
 def test_read_rinex_obs_v2_glonass_nav(rinex_obs_v2, rinex_nav_v2_glo):
@@ -83,8 +98,8 @@ def test_read_rinex_obs_without_nav_excludes_angles(rinex_obs_v3):
 def test_read_rinex_obs_gps_time_is_naive_and_leap_shifted(rinex_obs_v3):
     _, utc_lf = gt.read_rinex_obs(rinex_obs_v3)
     header, gps_lf = gt.read_rinex_obs(rinex_obs_v3, utc=False)
-    utc_time = utc_lf.select("time").head(1).collect().item()  # ty:ignore[unresolved-attribute]
-    gps_time = gps_lf.select("time").head(1).collect().item()  # ty:ignore[unresolved-attribute]
+    utc_time = utc_lf.select("time").head(1).collect().item()
+    gps_time = gps_lf.select("time").head(1).collect().item()
 
     assert gps_lf.collect_schema()["time"] == pl.Datetime("ms")
     assert (

@@ -8,10 +8,10 @@ from .tec import (
 )
 
 __all__ = [
-    "read_rinex_obs",
     "TECConfig",
     "calc_tec_from_df",
     "calc_tec_from_parquet",
     "calc_tec_from_rinex",
     "read_bias",
+    "read_rinex_obs",
 ]

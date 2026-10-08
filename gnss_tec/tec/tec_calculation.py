@@ -9,6 +9,7 @@ from typing import Literal
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+from numpy.typing import NDArray
 
 from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
 from .bias import estimate_rx_bias, read_bias
@@ -28,7 +29,7 @@ def _require_columns(lf: pl.LazyFrame, columns: Iterable[str], context: str) -> 
 def _infer_time_kind(lf: pl.LazyFrame) -> Literal["utc", "gps"]:
     dtype = lf.collect_schema()["time"]
     if not isinstance(dtype, pl.Datetime):
-        raise ValueError(
+        raise TypeError(
             "Input time column must be a Polars Datetime. Use timezone-aware UTC "
             "datetime values for UTC or naive datetime values for GPS time."
         )
@@ -58,7 +59,7 @@ def _handle_missing_bias(
 
     missing_expr = pl.any_horizontal([pl.col(col).is_null() for col in required_cols])
     if config.missing_bias in {"warn", "error"}:
-        missing_count = codes_lf.filter(missing_expr).select(pl.len()).collect().item()  # ty:ignore[unresolved-attribute]
+        missing_count = codes_lf.filter(missing_expr).select(pl.len()).collect().item()
         if missing_count:
             message = (
                 f"{missing_count} station/PRN/code/day combinations are missing "
@@ -257,8 +258,11 @@ def _map_frequencies(lf: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def _correct_cycle_slip(
-    time: np.ndarray, stec_p: np.ndarray, tec_diff_tol: float, window_size: int
-):
+    time: NDArray[np.float64],
+    stec_p: NDArray[np.float64],
+    tec_diff_tol: float,
+    window_size: int,
+) -> NDArray[np.float64]:
     """
     Correct the cycle slips in the sTEC from carrier phase.
 
@@ -307,7 +311,7 @@ def calc_tec_from_df(
     df: pl.DataFrame | pl.LazyFrame,
     header: RinexObsHeader,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
-    config: TECConfig = TECConfig(),
+    config: TECConfig | None = None,
 ) -> pl.LazyFrame:
     """
     Calculate the Total Electron Content (TEC) from a Polars DataFrame or LazyFrame
@@ -327,6 +331,8 @@ def calc_tec_from_df(
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
     """
+    if config is None:
+        config = TECConfig()
     input_lf = df.lazy()
     _require_columns(
         input_lf, ["time", "station", "prn", "azimuth", "elevation"], "calc_tec_from_df"
@@ -360,7 +366,7 @@ def calc_tec_from_df(
                 .dt.total_seconds()
             )
             .collect()
-            .item()  # ty:ignore[unresolved-attribute]
+            .item()
         )
     sampling_config = get_sampling_config(sampling_interval)
 
@@ -539,7 +545,7 @@ def calc_tec_from_df(
 def calc_tec_from_parquet(
     parquet_fn: str | Path,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
-    config: TECConfig = TECConfig(),
+    config: TECConfig | None = None,
 ) -> pl.LazyFrame:
     """
     Calculate the Total Electron Content (TEC) from a Parquet file containing GNSS
@@ -568,7 +574,7 @@ def calc_tec_from_rinex(
     obs_fn: str | Path | Iterable[str | Path],
     nav_fn: str | Path | Iterable[str | Path],
     bias_fn: str | Path | Iterable[str | Path] | None = None,
-    config: TECConfig = TECConfig(),
+    config: TECConfig | None = None,
     *,
     station: str | None = None,
 ) -> pl.LazyFrame:
@@ -593,6 +599,8 @@ def calc_tec_from_rinex(
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
     """
+    if config is None:
+        config = TECConfig()
     header, lf = read_rinex_obs(obs_fn, nav_fn, config.constellations, station=station)
 
     return calc_tec_from_df(lf, header, bias_fn, config)

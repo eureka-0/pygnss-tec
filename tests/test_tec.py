@@ -141,6 +141,18 @@ def test_calc_tec_without_bias_uses_uncorrected_stec(rinex_obs_v3, rinex_nav_v3)
     assert _median(df, "vtec") < 0
 
 
+def test_calc_tec_v2_without_bias_includes_recovered_observations(
+    rinex_obs_v2, rinex_nav_v2
+):
+    df = gt.calc_tec_from_rinex(
+        rinex_obs_v2, rinex_nav_v2, config=gt.TECConfig(rx_bias=None)
+    ).collect()
+
+    assert_valid_tec_frame(df, corrected=False)
+    # rinex 0.22 skipped satellite records and produced only 9,166 TEC rows.
+    assert df.height == 10933
+
+
 @pytest.mark.parametrize("method", ["mstd", "lsq"])
 def test_estimated_receiver_bias_methods(rinex_obs_v3, rinex_nav_v3, bias, method):
     df = gt.calc_tec_from_rinex(

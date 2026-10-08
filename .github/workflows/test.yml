@@ -2,7 +2,7 @@ name: Pytest
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch: {}
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout repository
@@ -30,8 +30,14 @@ jobs:
       - name: Check using ruff
         run: uv run ruff check .
 
+      - name: Check types using ty
+        run: uv run ty check .
+
       - name: Run tests
         run: uv run pytest
+
+      - name: Check custom allocators
+        run: uv run cargo check --locked --features custom-alloc
 
   pytest-multi-python:
     name: Run tests on Python ${{ matrix.python-version }}
@@ -40,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout repository
@@ -53,6 +59,9 @@ jobs:
 
       - name: Install dependencies
         run: uv sync
+
+      - name: Check types using ty
+        run: uv run ty check .
 
       - name: Run tests
         run: uv run pytest

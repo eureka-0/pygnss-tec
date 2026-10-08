@@ -8,7 +8,7 @@ from pathlib import Path
 import polars as pl
 import pymap3d as pm
 
-from .._core import _read_obs  # ty:ignore[unresolved-import]
+from .._core import _read_obs
 
 ALL_CONSTELLATIONS = {
     "C": "BDS",
@@ -92,7 +92,7 @@ class RinexObsHeader:
     leap_seconds: int | None
     """Number of leap seconds."""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | int | tuple[float, float, float] | None]:
         return {
             "version": self.version,
             "constellation": self.constellation,

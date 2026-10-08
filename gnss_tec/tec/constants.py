@@ -71,10 +71,10 @@ class TECConfig:
     min_snr: float = 30.0
     """Minimum signal-to-noise ratio in dB-Hz."""
 
-    c1_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=lambda: {})
+    c1_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=dict)
     """Observation codes priority list for C1 measurements."""
 
-    c2_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=lambda: {})
+    c2_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=dict)
     """Observation codes priority list for C2 measurements."""
 
     rx_bias: Literal["external", "mstd", "lsq"] | None = "external"
