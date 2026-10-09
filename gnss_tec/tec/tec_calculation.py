@@ -94,7 +94,6 @@ def _coalesce_observations(
             pl.col("prn").cat.slice(0, 1).cast(pl.Categorical).alias("constellation"),
             pl.col("code").cast(pl.Categorical),
         )
-        .sort(["date", "station", "prn"])
         .with_columns(
             pl.concat_str(pl.col("constellation"), pl.lit("_"), pl.col("code"))
             .replace_strict(
@@ -108,8 +107,8 @@ def _coalesce_observations(
             pl.col("code").filter(pl.col("band") == 1).alias("C1_code"),
             pl.col("code").filter(pl.col("band") == 2).alias("C2_code"),
         )
-        .explode("C1_code")
-        .explode("C2_code")
+        .explode("C1_code", empty_as_null=True, keep_nulls=True)
+        .explode("C2_code", empty_as_null=True, keep_nulls=True)
     )
 
     # ---- 2. Join bias data (if provided). ----
@@ -123,7 +122,10 @@ def _coalesce_observations(
             tx_bias=-pl.col("estimated_value"),
         )
         codes_lf = codes_lf.join(
-            tx_bias_lf, on=["prn", "C1_code", "C2_code", "date"], how="left"
+            tx_bias_lf,
+            on=["prn", "C1_code", "C2_code", "date"],
+            how="left",
+            validate="m:1",
         )
 
         if config.rx_bias == "external":
@@ -140,6 +142,7 @@ def _coalesce_observations(
                 rx_bias_lf,
                 on=["station", "constellation", "C1_code", "C2_code", "date"],
                 how="left",
+                validate="m:1",
             )
         codes_lf = _handle_missing_bias(codes_lf, required_bias_cols, config)
 
@@ -161,7 +164,12 @@ def _coalesce_observations(
         .agg(
             pl.all()
             .sort_by(
-                pl.col("C1_priority") * 2 + pl.col("C2_priority"), descending=False
+                [
+                    pl.col("C1_priority") * 2 + pl.col("C2_priority"),
+                    pl.col("C1_code").cast(pl.String),
+                    pl.col("C2_code").cast(pl.String),
+                ],
+                descending=False,
             )
             .first()
         )
@@ -198,6 +206,7 @@ def _coalesce_observations(
             codes_lf.drop("constellation", "C1_priority", "C2_priority"),
             on=["date", "station", "prn"],
             how="left",
+            validate="m:1",
         )
         .drop("date")
         .with_columns(
@@ -276,6 +285,10 @@ def _correct_cycle_slip(
         - np.ndarray: the cycle-slip-corrected sTEC, in TECU.
     """
     stec_p_corrected = stec_p.copy()
+    if not np.isfinite(time).all() or np.any(np.diff(time) <= 0):
+        raise ValueError(
+            "Observation times must be finite and unique within each station/PRN."
+        )
     start = -1
     end = -1
 
@@ -356,18 +369,40 @@ def calc_tec_from_df(
         pl.lit(header.rx_geodetic[1], dtype=pl.Float32).alias("rx_lon"),
     )
     if sampling_interval is None:
-        sampling_interval = int(
-            lf.select(
-                pl.col("time")
-                .diff()
-                .min()
-                .over("station", "prn")
-                .mean()
-                .dt.total_seconds()
+        # Use positive per-group cadences, including fractional seconds. A mean
+        # across satellites would misclassify mixed high/low-rate observations.
+        delta = pl.col("time").diff().dt.total_microseconds().over("station", "prn")
+        interval_us, regimes = (
+            lf.select("time", "station", "prn")
+            .sort("time")
+            .with_columns(delta.alias("_delta_us"))
+            .group_by("station", "prn")
+            .agg(pl.col("_delta_us").filter(pl.col("_delta_us") > 0).min())
+            .drop_nulls("_delta_us")
+            .select(
+                interval_us=pl.col("_delta_us").min(),
+                regimes=(
+                    (pl.col("_delta_us") > 5e6).cast(pl.UInt8) * 2
+                    + (pl.col("_delta_us") >= 10e6).cast(pl.UInt8)
+                ).n_unique(),
             )
             .collect()
-            .item()
+            .row(0)
         )
+        if interval_us is None:
+            raise ValueError(
+                "Cannot infer sampling interval without two distinct times in a "
+                "station/PRN; provide header.sampling_interval."
+            )
+        if regimes > 1:
+            raise ValueError(
+                "Inferred sampling intervals require different arc/cycle-slip "
+                "settings; process sampling groups separately or provide the "
+                "known header.sampling_interval."
+            )
+        sampling_interval = interval_us / 1e6
+    if sampling_interval <= 0:
+        raise ValueError("sampling_interval must be positive.")
     sampling_config = get_sampling_config(sampling_interval)
 
     lf = lf.with_columns(_leap_seconds_duration(header).alias("_leap_seconds"))
@@ -419,6 +454,10 @@ def calc_tec_from_df(
 
     lf = (
         lf.drop_nulls(["C1_val", "C2_val", "L1_val", "L2_val", "C1_freq", "C2_freq"])
+        # Sort once after selecting codes and discarding the wide raw observations.
+        # Joins can reorder rows in either engine; every time-dependent operation
+        # below sees chronological observations, and the output keeps this order.
+        .sort("time", "station", "prn")
         .with_columns(
             # sTEC from pseudorange, in TECU
             (pl.col("C2_val") - pl.col("C1_val")).mul(coeff).alias("stec_g"),
@@ -435,13 +474,15 @@ def calc_tec_from_df(
             .ge(sampling_config.arc_interval)
             .fill_null(False)
             .cum_sum()
-            .cast(pl.UInt16)
+            .cast(pl.UInt32)
             .over("station", "prn")
             .alias("arc_id")
         )
         # Detect and correct cycle slips in each arc
         .with_columns(
-            pl.struct([pl.col("time").dt.epoch("s"), pl.col("stec_p")])
+            pl.struct(
+                [pl.col("time").dt.epoch("us").cast(pl.Float64) / 1e6, pl.col("stec_p")]
+            )
             .map_batches(
                 lambda x: _correct_cycle_slip(
                     x.struct.field("time").fill_null(np.nan).to_numpy(),
@@ -450,6 +491,7 @@ def calc_tec_from_df(
                     sampling_config.slip_correction_window,
                 ),
                 return_dtype=pl.Float64,
+                is_elementwise=False,
             )
             .over("station", "prn", "arc_id")
             .alias("stec_p")
@@ -457,13 +499,16 @@ def calc_tec_from_df(
         # Level phase sTEC to pseudorange sTEC using elevation-based weighted offset
         .with_columns(
             (pl.col("stec_g") - pl.col("stec_p")).alias("raw_offset"),
-            pl.col("elevation").radians().sin().pow(2).alias("weight"),
+            # Preserve the original point weights, but accumulate both sums in
+            # Float64 so streaming partition sizes cannot change phase levelling.
+            pl.col("elevation").radians().sin().pow(2).cast(pl.Float64).alias("weight"),
         )
         .with_columns(
             pl.col("raw_offset")
             .mul(pl.col("weight"))
             .sum()
             .truediv(pl.col("weight").sum())
+            .fill_nan(None)
             .over("station", "prn", "arc_id")
             .alias("offset")
         )
@@ -539,7 +584,8 @@ def calc_tec_from_df(
         cols_to_drop = cols_available.intersection(intermediate_cols) - cols_to_retain
         lf = lf.drop(cols_to_drop)
 
-    return lf.sort("time", "station", "prn")
+    # Filters, group-to-row windows and receiver-bias joins preserve the arc sort.
+    return lf
 
 
 def calc_tec_from_parquet(

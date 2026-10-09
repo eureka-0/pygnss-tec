@@ -16,7 +16,7 @@ The library uses the [Polars](https://pola.rs/) DataFrame library for efficient 
 
 ### Dependencies
 
-- Python >= 3.10
+- Python >= 3.12
 - Rust
 - `uv` (recommended for Python environment management)
 
@@ -30,7 +30,7 @@ The library uses the [Polars](https://pola.rs/) DataFrame library for efficient 
 
 2.  Build the project using `maturin`:
     ```bash
-    uv run maturin build --release
+    uv run --with maturin maturin build --release
     ```
     The compiled wheel will be in the `target/wheels` directory.
 

@@ -1,7 +1,7 @@
 # PyGNSS-TEC
 
 [![PyPI - Version](https://img.shields.io/pypi/v/pygnss-tec)](https://pypi.org/project/pygnss-tec/)
-![Supported Python Versions](https://img.shields.io/badge/python-%3E%3D3.10-blue)
+![Supported Python Versions](https://img.shields.io/badge/python-%3E%3D3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 [![Test](https://github.com/Eureka-0/pygnss-tec/actions/workflows/test.yml/badge.svg)](https://github.com/Eureka-0/pygnss-tec/actions/workflows/test.yml)
 
@@ -13,7 +13,7 @@ PyGNSS-TEC is a high-performance Python package leveraging Rust acceleration, de
 
 - **RINEX File Reading**: Efficient reading and parsing of RINEX GNSS observation files using [rinex crate](https://crates.io/crates/rinex) (see [benchmarks](#benchmarks-on-m2-pro-12-core-cpu) for details).
 
-- **Multiple File Formats**: Support for RINEX versions 2.x and 3.x., as well as Hatanaka compressed files (e.g., .Z, .crx, .crx.gz).
+- **Multiple File Formats**: Support for RINEX versions 2.x and 3.x, as well as Hatanaka compressed files (e.g., .Z, .crx, .crx.gz).
 
 - **TEC Calculation**: Efficiently compute TEC from dual-frequency GNSS observations using [polars](https://pola.rs/) DataFrames and lazy evaluation (see [benchmarks](#benchmarks-on-m2-pro-12-core-cpu) for details).
 - **Multi-GNSS Support**: Process observations from multiple GNSS constellations (see [Overview](#overview) for constellation support).
@@ -40,15 +40,15 @@ uv add pygnss-tec
 
 ### From Source
 
-Building from source requires Rust and Cargo to be installed. Once you have both, run:
+Building from source requires Python 3.12 or later, Rust 1.88 or later (including Cargo), and uv:
 
 ```bash
 git clone https://github.com/Eureka-0/pygnss-tec.git
 cd pygnss-tec
-uv run maturin build --release
+uv run --with maturin maturin build --release
 
-# Or enable custom memory allocator feature, which can improve performance in some scenarios (~10%) but may increase memory usage
-uv run maturin build --release --features custom-alloc
+# Or enable custom memory allocation, which may improve performance but can increase memory usage
+uv run --with maturin maturin build --release --features custom-alloc
 ```
 
 The built package will be available in the `target/wheels` directory. You can then install it to your Python environment or uv project with:
@@ -76,6 +76,8 @@ The following table summarizes the support for different GNSS constellations in 
 | QZSS (J)       | Yes            | No              |
 | IRNSS (I)      | Yes            | No              |
 | SBAS (S)       | Yes            | No              |
+
+The default TEC configuration supports GPS for RINEX 2, and GPS/BeiDou for RINEX 3.
 
 ### RINEX file reading
 
@@ -140,6 +142,8 @@ header, lf = gt.read_rinex_obs(
 
 Directly calculate from RINEX files using `calc_tec_from_rinex` function:
 
+`stec`, `stec_dcb_corrected`, and `vtec` are in TECU. Receiver and IPP latitude/longitude are in degrees. TEC output times are UTC.
+
 ```python
 tec_lf = gt.calc_tec_from_rinex(
     "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
@@ -187,7 +191,7 @@ tec_lf = gt.calc_tec_from_df(lf, header, "./data/bias/CAS0OPSRAP_20240100000_01D
 
 #### From parquet file
 
-Reading RINEX files is time-consuming, accounting for at least 90% of the total calculation time. Thus, if you need to perform TEC calculation multiple times on the same RINEX files (e.g., when tuning configuration), it is recommended to save the parsed LazyFrame to a parquet file after the first read, and then use `calc_tec_from_parquet` for subsequent TEC calculations:
+RINEX parsing often accounts for most of the processing time. When calculating TEC repeatedly from the same observations (e.g., when tuning configuration), save the parsed observations to Parquet and use `calc_tec_from_parquet`:
 
 ```python
 header, lf = gt.read_rinex_obs(
@@ -247,20 +251,23 @@ print(gt.TECConfig())
 ```
 
 The meaning of each parameter is as follows:
+
 - `constellations`: A string specifying which GNSS constellations to consider for TEC calculation. 'C' for Beidou, 'G' for GPS.
 - `ipp_height`: The assumed height of the ionospheric pierce point (IPP) in kilometers.
 - `min_elevation`: The minimum satellite elevation angle (in degrees) for observations to be considered in the TEC calculation.
 - `min_snr`: The minimum signal-to-noise ratio (in dB-Hz) for observations to be considered in the TEC calculation.
-- `c1_codes`: A dictionary specifying the preferred observation codes for the first frequency (C1) for each RINEX version and constellation. The codes are prioritized in the order they are listed, with the first available code being used. This parameter supports partial setting (e.g., `c1_codes={'3': {'C': [...]} }` to only set for Beidou in RINEX version 3, and use default for others).
+- `c1_codes`: A dictionary of ordered preferences for the first frequency (C1), by RINEX version and constellation. Together with `c2_codes`, available pairs are ranked by `2 * C1_index + C2_index` (indices start at zero); ties are resolved by code name. Partial overrides are supported, e.g., `c1_codes={'3': {'C': [...]}}` changes only the BeiDou RINEX 3 preferences.
 - `c2_codes`: A dictionary specifying the preferred observation codes for the second frequency (C2) for each RINEX version and constellation, similar to `c1_codes`.
 - `rx_bias`: Specifies how to handle receiver bias. It can be set to 'external' to use an external DCB file for correction, 'mstd' to use the minimum standard deviation method for estimation, 'lsq' to use least squares estimation, or `None` to skip receiver bias correction. Note that the receiver bias estimation is only applicable after the satellite bias has been corrected using an external DCB file (e.g., from IGS). If no external DCB file is provided, this parameter will be ignored. The 'mstd' and 'lsq' methods are for stations that are not included in the external DCB file.
 - `mapping_function`: The mapping function to use for converting slant TEC to vertical TEC. It can be set to 'slm' for the Single Layer Model or 'mslm' for the Modified Single Layer Model.
 - `retain_intermediate`: Names of intermediate columns to retain in the output DataFrame. It can be set to `None` to discard all intermediate columns, 'all' to retain all intermediate columns, or a list of column names to keep specific ones.
 - `missing_bias`: Specifies how to handle observations whose satellite or receiver bias cannot be matched from the provided DCB file. It can be set to 'drop' to keep the previous behavior, 'warn' to drop and emit a warning, 'keep_uncorrected' to retain observations and treat missing bias as zero, or 'error' to fail fast.
 
-When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware `datetime[ms, UTC]` for UTC time, and timezone-naive `datetime[ms]` for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
+When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware UTC datetimes for UTC time, and timezone-naive datetimes for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
 
 ## Benchmarks (on M2 Pro 12-Core CPU)
+
+These timings are illustrative; results depend on the input data, package versions, and configuration.
 
 | Task                                                      |   Time (s) |
 |:----------------------------------------------------------|-----------:|

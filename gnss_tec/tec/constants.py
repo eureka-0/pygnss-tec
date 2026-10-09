@@ -254,7 +254,7 @@ class SamplingConfig:
     """Window size for slip correction in number of samples."""
 
 
-def get_sampling_config(sampling_interval: int) -> SamplingConfig:
+def get_sampling_config(sampling_interval: float) -> SamplingConfig:
     if sampling_interval <= 5:
         return SamplingConfig(
             arc_interval=pl.duration(minutes=1),

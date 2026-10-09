@@ -12,7 +12,7 @@ name = "gnss_tec_core"
 
 [dependencies]
 arrow = { version = "60.0.0", default-features = false, features = ["pyarrow"] }
-pyo3 = { version = "0.29.3", features = ["abi3-py310", "extension-module"] }
+pyo3 = { version = "0.29.3", features = ["abi3-py312", "extension-module"] }
 rayon = "1.12.0"
 rinex = { version = "=0.23.1", features = ["flate2", "nav", "qc"] }
 rustc-hash = "2.1.3"
