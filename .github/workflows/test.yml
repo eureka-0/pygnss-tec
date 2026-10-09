@@ -67,7 +67,9 @@ jobs:
       - name: Check types using ty
         run: uv run --no-sync ty check .
       - name: Run tests with the selected engine
-        run: uv run --no-sync python benchmarks/dependency_audit.py --pytest --engine ${{ matrix.engine }}
+        env:
+          POLARS_ENGINE_AFFINITY: ${{ matrix.engine }}
+        run: uv run --no-sync pytest
 
   pytest-minimum-dependencies:
     name: Python 3.12 / minimum dependencies / ${{ matrix.os }}
@@ -91,24 +93,3 @@ jobs:
         run: uv run --no-sync python -c "from importlib.metadata import version; expected={'numpy':'2.0.0','polars':'1.40.0','pyarrow':'21.0.0','scipy':'1.16.0','pymap3d':'3.2.0'}; actual={p:version(p) for p in expected}; assert actual == expected; print(actual)"
       - name: Run tests
         run: uv run --no-sync pytest
-
-  polars-science-consistency:
-    name: Compare Polars 1.x and 2.x scientific outputs
-    runs-on: ubuntu-latest
-    env:
-      POLARS_MAX_THREADS: "4"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: uv sync --locked
-      - name: Capture latest Polars 1.x results
-        run: uv run --no-sync --with "polars>=1.40,<2" python benchmarks/dependency_audit.py --output /tmp/polars-1 --repeats 1
-      - name: Capture latest Polars 2.x results
-        run: uv run --no-sync --with "polars>=2,<3" python benchmarks/dependency_audit.py --output /tmp/polars-2 --repeats 1
-      - name: Check identities, null masks and scientific values
-        run: uv run --no-sync python benchmarks/compare_dependency_audit.py /tmp/polars-1 /tmp/polars-2

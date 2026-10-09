@@ -21,6 +21,9 @@ def test_read_rinex_obs_v2(rinex_obs_v2, rinex_nav_v2):
         df, ["time", "station", "prn", "azimuth", "elevation", "C1", "L1"]
     )
     assert df.get_column("time").dtype == pl.Datetime("ms", "UTC")
+    assert all(
+        df.schema[name] == pl.Float64 for name in ("C1", "L1", "azimuth", "elevation")
+    )
     assert df.get_column("elevation").is_between(-90, 90).all()
 
     # These fields are blank in the original RINEX 2 records. rinex 0.22
@@ -66,6 +69,9 @@ def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3, rinex_nav_v3):
     assert header1.sampling_interval == 30
     assert_frame_equal(df_hatanaka, df, check_exact=False, abs_tol=1e-8)
     assert df.shape == (180027, 73)
+    assert all(
+        df.schema[name] == pl.Float64 for name in ("C1C", "L1C", "azimuth", "elevation")
+    )
     assert_has_columns(
         df, ["time", "station", "prn", "azimuth", "elevation", "C1C", "L1C", "S1C"]
     )
@@ -114,6 +120,7 @@ def test_read_rinex_obs_long_format(rinex_obs_v3):
 
     assert df.columns == ["time", "station", "prn", "code", "value"]
     assert df.height > 2_000_000
+    assert df.schema["value"] == pl.Float64
     assert {"C2I", "L2I", "S2I"}.issubset(set(df.get_column("code").unique()))
 
 

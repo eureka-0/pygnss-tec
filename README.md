@@ -11,11 +11,11 @@ PyGNSS-TEC is a high-performance Python package leveraging Rust acceleration, de
 
 ## Features
 
-- **RINEX File Reading**: Efficient reading and parsing of RINEX GNSS observation files using [rinex crate](https://crates.io/crates/rinex) (see [benchmarks](#benchmarks-on-m2-pro-12-core-cpu) for details).
+- **RINEX File Reading**: Efficient reading and parsing of RINEX GNSS observation files using [rinex crate](https://crates.io/crates/rinex) (see [benchmarks](#benchmarks) for details).
 
 - **Multiple File Formats**: Support for RINEX versions 2.x and 3.x, as well as Hatanaka compressed files (e.g., .Z, .crx, .crx.gz).
 
-- **TEC Calculation**: Efficiently compute TEC from dual-frequency GNSS observations using [polars](https://pola.rs/) DataFrames and lazy evaluation (see [benchmarks](#benchmarks-on-m2-pro-12-core-cpu) for details).
+- **TEC Calculation**: Efficiently compute TEC from dual-frequency GNSS observations using [polars](https://pola.rs/) DataFrames and lazy evaluation (see [benchmarks](#benchmarks) for details).
 - **Multi-GNSS Support**: Process observations from multiple GNSS constellations (see [Overview](#overview) for constellation support).
 
 - **Open-Source**: Fully open-source under the MIT License, encouraging community contributions and collaboration.
@@ -90,6 +90,7 @@ header, lf = gt.read_rinex_obs("./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_
 
 # You can read multiple files from the same station by passing a list of file paths
 # header, lf = gt.read_rinex_obs(["./data/file1.crx.gz", "./data/file2.crx.gz"])
+# Multi-file observations retain each file's receiver coordinates in rx_lat/rx_lon.
 
 # header is a dataclass containing RINEX file header information
 print(header)
@@ -151,12 +152,12 @@ tec_lf = gt.calc_tec_from_rinex(
     "./data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz",  # Optional DCB file, can be omitted if DCB correction is not needed
 )
 
-print(tec_lf.collect())
+print(tec_lf.collect(engine="in-memory"))
 # shape: (50_147, 12)
 # ┌─────────────────────────┬─────────┬─────┬───────────┬────────────┬─────────┬─────────┬───────────┬────────────┬─────────────┬────────────────────┬───────────┐
 # │ time                    ┆ station ┆ prn ┆ rx_lat    ┆ rx_lon     ┆ C1_code ┆ C2_code ┆ ipp_lat   ┆ ipp_lon    ┆ stec        ┆ stec_dcb_corrected ┆ vtec      │
 # │ ---                     ┆ ---     ┆ --- ┆ ---       ┆ ---        ┆ ---     ┆ ---     ┆ ---       ┆ ---        ┆ ---         ┆ ---                ┆ ---       │
-# │ datetime[ms, UTC]       ┆ cat     ┆ cat ┆ f32       ┆ f32        ┆ cat     ┆ cat     ┆ f32       ┆ f32        ┆ f64         ┆ f64                ┆ f64       │
+# │ datetime[ms, UTC]       ┆ cat     ┆ cat ┆ f64       ┆ f64        ┆ cat     ┆ cat     ┆ f64       ┆ f64        ┆ f64         ┆ f64                ┆ f64       │
 # ╞═════════════════════════╪═════════╪═════╪═══════════╪════════════╪═════════╪═════════╪═══════════╪════════════╪═════════════╪════════════════════╪═══════════╡
 # │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C01 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -6.021448 ┆ 110.041397 ┆ -65.178132  ┆ 37.369112          ┆ 28.186231 │
 # │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C02 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -5.874807 ┆ 105.12574  ┆ -92.766855  ┆ 30.478708          ┆ 27.233229 │
@@ -213,6 +214,23 @@ tec_lf = gt.calc_tec_from_parquet(
 )
 ```
 
+#### Execution engines
+
+For small batches that fit comfortably in memory, use `in-memory`. Our [benchmarks](benchmarks/benchmark.md) show faster TEC calculation from resident observations with this engine. Streaming's batch processing and coordination add overhead to these grouped calculations; end-to-end differences are smaller because RINEX parsing accounts for most of the time.
+
+```python
+tec_df = tec_lf.collect(engine="in-memory")
+
+# Alternatively, run the same calculation with the streaming engine.
+tec_df = tec_lf.collect(engine="streaming")
+```
+
+For large datasets, especially those exceeding available memory, consider `streaming` with a scan-based source such as `calc_tec_from_parquet`. It can reduce intermediate memory use, but TEC still needs complete arcs and grouped calculations; memory use and speed depend on the query, and `collect` must hold the final DataFrame in memory.
+
+If the TEC output is also too large to collect, write it with `tec_lf.sink_parquet("tec.parquet", engine="streaming")`.
+
+RINEX files are fully loaded before their LazyFrame is returned. Choosing `streaming` cannot make an oversized raw RINEX input fit in memory; prepare a scan-based input or use batches that preserve complete arcs. Compare both engines for large workloads.
+
 #### Configuration
 
 You can customize the TEC calculation process using the `TECConfig` dataclass:
@@ -265,17 +283,6 @@ The meaning of each parameter is as follows:
 
 When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware UTC datetimes for UTC time, and timezone-naive datetimes for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
 
-## Benchmarks (on M2 Pro 12-Core CPU)
+## Benchmarks
 
-These timings are illustrative; results depend on the input data, package versions, and configuration.
-
-| Task                                                      |   Time (s) |
-|:----------------------------------------------------------|-----------:|
-| Read RINEX v2 (3.65 MB)                                   |     0.1362 |
-| Read RINEX v3 (14.02 MB)                                  |     0.7397 |
-| Read RINEX v3 (6.05 MB Hatanaka-compressed)               |     1.2468 |
-| Read RINEX v3 (2.34 MB Hatanaka-compressed)               |     0.5653 |
-| Calculate TEC from RINEX v2 (3.65 MB)                     |     0.1457 |
-| Calculate TEC from RINEX v3 (14.02 MB)                    |     0.7532 |
-| Calculate TEC from RINEX v3 (6.05 MB Hatanaka-compressed) |     1.3067 |
-| Calculate TEC from RINEX v3 (2.34 MB Hatanaka-compressed) |     0.5908 |
+See [benchmarks/benchmark.md](benchmarks/benchmark.md) for streaming and in-memory benchmark results.

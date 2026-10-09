@@ -2224,9 +2224,9 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rinex"
-version = "0.23.1"
+version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a529d5b00f3f395bfe3a1eddc8ac502398946645b5b3721005d08f2e01f214ad"
+checksum = "1a08a8f9764addc2cb938049bfe2655898ca5113efce4f5062469f761c2fdd17"
 dependencies = [
  "anise",
  "bitflags",

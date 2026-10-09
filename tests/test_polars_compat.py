@@ -80,7 +80,7 @@ def test_scientific_reference(observations, engine):
     )
     elevation = np.deg2rad(result["elevation"].to_numpy().astype(np.float64))
     expected_mf = 1 / np.sqrt(1 - (Re / (Re + 400_000) * np.cos(elevation)) ** 2)
-    np.testing.assert_allclose(result["mf"].to_numpy(), expected_mf, rtol=0, atol=2e-6)
+    np.testing.assert_allclose(result["mf"].to_numpy(), expected_mf, rtol=0, atol=1e-12)
     np.testing.assert_allclose(result["stec_p"].to_numpy(), 5.0, rtol=0, atol=1e-12)
     assert result["arc_id"].unique().sort().to_list() == [0, 1]
     for group in result.partition_by("station", "prn", "arc_id"):
@@ -90,9 +90,10 @@ def test_scientific_reference(observations, engine):
         np.testing.assert_allclose(
             group["stec_g"].to_numpy(), expected_g, rtol=0, atol=1e-12
         )
-        # Point weights retain the reader's Float32 trigonometry. The independent
-        # reference sums those fixed weights in double precision, using fsum.
-        weights = source.select(pl.col("elevation").radians().sin().pow(2)).to_series()
+        # Independent NumPy Float64 trigonometry and accurately rounded sums.
+        weights = (
+            np.sin(np.deg2rad(source["elevation"].to_numpy().astype(np.float64))) ** 2
+        )
         offset = math.fsum(
             (g - 5.0) * w for g, w in zip(expected_g, weights, strict=True)
         ) / math.fsum(weights)
@@ -142,6 +143,19 @@ def test_chunked_whole_arc_udf(observations, engine):
         rel_tol=0,
         abs_tol=1e-10,
     )
+
+
+def test_float32_geometry_matches_float64_input(observations, engine):
+    header, raw = observations
+    raw = raw.with_columns(
+        pl.lit(12.345678, dtype=pl.Float32).alias("rx_lat"),
+        pl.lit(45.678901, dtype=pl.Float32).alias("rx_lon"),
+    )
+    geometry = ["azimuth", "elevation", "rx_lat", "rx_lon"]
+    expected = _calculate(raw.with_columns(pl.col(geometry).cast(pl.Float64)), header)
+    actual = _calculate(raw.lazy(), header)
+    assert all(actual.schema[name] == pl.Float64 for name in geometry)
+    assert_frame_equal(actual, expected, check_exact=False, rel_tol=0, abs_tol=1e-12)
 
 
 def test_duplicate_times_are_rejected(observations, engine):

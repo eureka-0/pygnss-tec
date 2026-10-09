@@ -3,7 +3,7 @@ from pathlib import Path
 from pytest import fixture
 
 
-@fixture
+@fixture(scope="module")
 def test_data_dir():
     return Path(__file__).parent.parent / "data"
 

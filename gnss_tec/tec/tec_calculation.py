@@ -225,8 +225,14 @@ def _coalesce_observations(
             build_extract_expr("S2_code").alias("S2"),
         )
         .with_columns(
-            (pl.col("S1").null_count() / pl.len()).cast(pl.Float32).alias("S1_null_pc"),
-            (pl.col("S2").null_count() / pl.len()).cast(pl.Float32).alias("S2_null_pc"),
+            (pl.col("S1").null_count() / pl.len())
+            .over("station")
+            .cast(pl.Float32)
+            .alias("S1_null_pc"),
+            (pl.col("S2").null_count() / pl.len())
+            .over("station")
+            .cast(pl.Float32)
+            .alias("S2_null_pc"),
         )
         .filter(
             (pl.col("S1") >= config.min_snr) | (pl.col("S1_null_pc") > 0.5),
@@ -335,6 +341,7 @@ def calc_tec_from_df(
             observations.
         header (RinexObsHeader): RINEX observation file header. It is used to infer the
             RINEX metadata such as version, receiver position, and sampling interval.
+            Existing rx_lat/rx_lon columns take precedence over the header position.
         bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
             bias file(s). If provided, DCB biases will be applied to the TEC
             calculation. Defaults to None.
@@ -350,6 +357,16 @@ def calc_tec_from_df(
     _require_columns(
         input_lf, ["time", "station", "prn", "azimuth", "elevation"], "calc_tec_from_df"
     )
+    input_schema = input_lf.collect_schema()
+    # RINEX geometry is already Float64. Normalize external DataFrame/Parquet
+    # inputs once so all later trigonometry and weighting use the same precision.
+    geometry_casts = [
+        pl.col(name).cast(pl.Float64)
+        for name in ("azimuth", "elevation", "rx_lat", "rx_lon")
+        if name in input_schema and input_schema[name] != pl.Float64
+    ]
+    if geometry_casts:
+        input_lf = input_lf.with_columns(geometry_casts)
     time_kind = _infer_time_kind(input_lf)
 
     lf = (
@@ -364,10 +381,13 @@ def calc_tec_from_df(
     )
 
     sampling_interval = header.sampling_interval
-    lf = lf.with_columns(
-        pl.lit(header.rx_geodetic[0], dtype=pl.Float32).alias("rx_lat"),
-        pl.lit(header.rx_geodetic[1], dtype=pl.Float32).alias("rx_lon"),
-    )
+    header_positions = [
+        pl.lit(header.rx_geodetic[index], dtype=pl.Float64).alias(name)
+        for index, name in enumerate(("rx_lat", "rx_lon"))
+        if name not in input_schema
+    ]
+    if header_positions:
+        lf = lf.with_columns(header_positions)
     if sampling_interval is None:
         # Use positive per-group cadences, including fractional seconds. A mean
         # across satellites would misclassify mixed high/low-rate observations.
@@ -480,9 +500,7 @@ def calc_tec_from_df(
         )
         # Detect and correct cycle slips in each arc
         .with_columns(
-            pl.struct(
-                [pl.col("time").dt.epoch("us").cast(pl.Float64) / 1e6, pl.col("stec_p")]
-            )
+            pl.struct([pl.col("time").dt.epoch("us") / 1e6, pl.col("stec_p")])
             .map_batches(
                 lambda x: _correct_cycle_slip(
                     x.struct.field("time").fill_null(np.nan).to_numpy(),
@@ -499,9 +517,7 @@ def calc_tec_from_df(
         # Level phase sTEC to pseudorange sTEC using elevation-based weighted offset
         .with_columns(
             (pl.col("stec_g") - pl.col("stec_p")).alias("raw_offset"),
-            # Preserve the original point weights, but accumulate both sums in
-            # Float64 so streaming partition sizes cannot change phase levelling.
-            pl.col("elevation").radians().sin().pow(2).cast(pl.Float64).alias("weight"),
+            pl.col("elevation").radians().sin().pow(2).alias("weight"),
         )
         .with_columns(
             pl.col("raw_offset")
@@ -630,8 +646,7 @@ def calc_tec_from_rinex(
 
     Args:
         obs_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX observation
-            file(s). These files must be from the same station, otherwise the output
-            DataFrame will be incorrect.
+            file(s). These files must be from the same station.
         nav_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX navigation
             file(s).
         bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the

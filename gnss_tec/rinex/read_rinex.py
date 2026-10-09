@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import polars as pl
@@ -217,8 +217,7 @@ def read_rinex_obs(
 
     Args:
         obs_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX observation
-            file(s). These files must be from the same station, otherwise the output
-            DataFrame will be incorrect.
+            file(s). These files must be from the same station.
         nav_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
             RINEX navigation file(s). If provided, azimuth and elevation angles will be
             computed. Defaults to None.
@@ -241,17 +240,61 @@ def read_rinex_obs(
     Returns:
         (RinexObsHeader, pl.LazyFrame): A Dataclass containing metadata from the RINEX
             observation file header and a LazyFrame containing the RINEX observation
-            data.
+            data. For multiple files, the header describes the first file and
+            rx_lat/rx_lon columns preserve each file's receiver coordinates.
+            Observation values, angles and receiver coordinate columns use Float64.
 
     Raises:
         FileNotFoundError: If the observation or navigation file does not exist.
-        ValueError: If an unknown constellation code is provided.
+        ValueError: If a constellation code is unknown or observation files use
+            different stations or RINEX major versions.
     """
     obs_fn_list = _handle_fn(obs_fn)
     if nav_fn is not None:
         nav_fn_list = _handle_fn(nav_fn)
     else:
         nav_fn_list = None
+
+    if len(obs_fn_list) > 1:
+        # Receiver coordinates can change between daily headers. Calculate each
+        # file's angles at its own position and retain that position for TEC.
+        observation_codes = None if codes is None else list(codes)
+        parts = [
+            read_rinex_obs(
+                fn, nav_fn_list, constellations, observation_codes, utc=utc, pivot=pivot
+            )
+            for fn in obs_fn_list
+        ]
+        headers = [h for h, _ in parts]
+        if len({h.marker_name for h in headers}) != 1:
+            raise ValueError(
+                "Observation files must belong to the same station; process stations separately."
+            )
+        if len({h.version.split(".")[0] for h in headers}) != 1:
+            raise ValueError("Observation files must use the same RINEX major version.")
+        if not utc and len({h.leap_seconds for h in headers}) != 1:
+            raise ValueError(
+                "GPS-time observation files must use consistent leap seconds."
+            )
+        header = headers[0]
+        if len({h.sampling_interval for h in headers}) != 1:
+            header = replace(header, sampling_interval=None)
+        if len({h.leap_seconds for h in headers}) != 1:
+            header = replace(header, leap_seconds=None)
+        lf = pl.concat(
+            [
+                frame.with_columns(
+                    pl.lit(h.rx_geodetic[0], dtype=pl.Float64).alias("rx_lat"),
+                    pl.lit(h.rx_geodetic[1], dtype=pl.Float64).alias("rx_lon"),
+                )
+                for h, frame in parts
+            ],
+            how="diagonal",
+        )
+        if station is not None:
+            header = replace(header, marker_name=station)
+            lf = lf.with_columns(pl.lit(station).cast(pl.Categorical).alias("station"))
+        return header, lf.sort("time", "station", "prn")
 
     if constellations is not None:
         constellations = constellations.upper()
@@ -300,8 +343,8 @@ def read_rinex_obs(
             deg=True,
         )
         return df.with_columns(
-            pl.Series("azimuth", az, dtype=pl.Float32),
-            pl.Series("elevation", el, dtype=pl.Float32),
+            pl.Series("azimuth", az, dtype=pl.Float64),
+            pl.Series("elevation", el, dtype=pl.Float64),
         )
 
     if nav_fn is not None:
