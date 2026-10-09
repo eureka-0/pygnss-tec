@@ -9,6 +9,7 @@ from typing import Literal
 import numpy as np
 import polars as pl
 import polars.selectors as cs
+from numpy.typing import NDArray
 
 from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
 from .bias import estimate_rx_bias, read_bias
@@ -28,7 +29,7 @@ def _require_columns(lf: pl.LazyFrame, columns: Iterable[str], context: str) -> 
 def _infer_time_kind(lf: pl.LazyFrame) -> Literal["utc", "gps"]:
     dtype = lf.collect_schema()["time"]
     if not isinstance(dtype, pl.Datetime):
-        raise ValueError(
+        raise TypeError(
             "Input time column must be a Polars Datetime. Use timezone-aware UTC "
             "datetime values for UTC or naive datetime values for GPS time."
         )
@@ -58,7 +59,7 @@ def _handle_missing_bias(
 
     missing_expr = pl.any_horizontal([pl.col(col).is_null() for col in required_cols])
     if config.missing_bias in {"warn", "error"}:
-        missing_count = codes_lf.filter(missing_expr).select(pl.len()).collect().item()  # ty:ignore[unresolved-attribute]
+        missing_count = codes_lf.filter(missing_expr).select(pl.len()).collect().item()
         if missing_count:
             message = (
                 f"{missing_count} station/PRN/code/day combinations are missing "
@@ -93,7 +94,6 @@ def _coalesce_observations(
             pl.col("prn").cat.slice(0, 1).cast(pl.Categorical).alias("constellation"),
             pl.col("code").cast(pl.Categorical),
         )
-        .sort(["date", "station", "prn"])
         .with_columns(
             pl.concat_str(pl.col("constellation"), pl.lit("_"), pl.col("code"))
             .replace_strict(
@@ -107,8 +107,8 @@ def _coalesce_observations(
             pl.col("code").filter(pl.col("band") == 1).alias("C1_code"),
             pl.col("code").filter(pl.col("band") == 2).alias("C2_code"),
         )
-        .explode("C1_code")
-        .explode("C2_code")
+        .explode("C1_code", empty_as_null=True, keep_nulls=True)
+        .explode("C2_code", empty_as_null=True, keep_nulls=True)
     )
 
     # ---- 2. Join bias data (if provided). ----
@@ -122,7 +122,10 @@ def _coalesce_observations(
             tx_bias=-pl.col("estimated_value"),
         )
         codes_lf = codes_lf.join(
-            tx_bias_lf, on=["prn", "C1_code", "C2_code", "date"], how="left"
+            tx_bias_lf,
+            on=["prn", "C1_code", "C2_code", "date"],
+            how="left",
+            validate="m:1",
         )
 
         if config.rx_bias == "external":
@@ -139,6 +142,7 @@ def _coalesce_observations(
                 rx_bias_lf,
                 on=["station", "constellation", "C1_code", "C2_code", "date"],
                 how="left",
+                validate="m:1",
             )
         codes_lf = _handle_missing_bias(codes_lf, required_bias_cols, config)
 
@@ -160,7 +164,12 @@ def _coalesce_observations(
         .agg(
             pl.all()
             .sort_by(
-                pl.col("C1_priority") * 2 + pl.col("C2_priority"), descending=False
+                [
+                    pl.col("C1_priority") * 2 + pl.col("C2_priority"),
+                    pl.col("C1_code").cast(pl.String),
+                    pl.col("C2_code").cast(pl.String),
+                ],
+                descending=False,
             )
             .first()
         )
@@ -197,6 +206,7 @@ def _coalesce_observations(
             codes_lf.drop("constellation", "C1_priority", "C2_priority"),
             on=["date", "station", "prn"],
             how="left",
+            validate="m:1",
         )
         .drop("date")
         .with_columns(
@@ -215,8 +225,14 @@ def _coalesce_observations(
             build_extract_expr("S2_code").alias("S2"),
         )
         .with_columns(
-            (pl.col("S1").null_count() / pl.len()).cast(pl.Float32).alias("S1_null_pc"),
-            (pl.col("S2").null_count() / pl.len()).cast(pl.Float32).alias("S2_null_pc"),
+            (pl.col("S1").null_count() / pl.len())
+            .over("station")
+            .cast(pl.Float32)
+            .alias("S1_null_pc"),
+            (pl.col("S2").null_count() / pl.len())
+            .over("station")
+            .cast(pl.Float32)
+            .alias("S2_null_pc"),
         )
         .filter(
             (pl.col("S1") >= config.min_snr) | (pl.col("S1_null_pc") > 0.5),
@@ -257,8 +273,11 @@ def _map_frequencies(lf: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def _correct_cycle_slip(
-    time: np.ndarray, stec_p: np.ndarray, tec_diff_tol: float, window_size: int
-):
+    time: NDArray[np.float64],
+    stec_p: NDArray[np.float64],
+    tec_diff_tol: float,
+    window_size: int,
+) -> NDArray[np.float64]:
     """
     Correct the cycle slips in the sTEC from carrier phase.
 
@@ -272,6 +291,10 @@ def _correct_cycle_slip(
         - np.ndarray: the cycle-slip-corrected sTEC, in TECU.
     """
     stec_p_corrected = stec_p.copy()
+    if not np.isfinite(time).all() or np.any(np.diff(time) <= 0):
+        raise ValueError(
+            "Observation times must be finite and unique within each station/PRN."
+        )
     start = -1
     end = -1
 
@@ -307,7 +330,7 @@ def calc_tec_from_df(
     df: pl.DataFrame | pl.LazyFrame,
     header: RinexObsHeader,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
-    config: TECConfig = TECConfig(),
+    config: TECConfig | None = None,
 ) -> pl.LazyFrame:
     """
     Calculate the Total Electron Content (TEC) from a Polars DataFrame or LazyFrame
@@ -318,6 +341,7 @@ def calc_tec_from_df(
             observations.
         header (RinexObsHeader): RINEX observation file header. It is used to infer the
             RINEX metadata such as version, receiver position, and sampling interval.
+            Existing rx_lat/rx_lon columns take precedence over the header position.
         bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
             bias file(s). If provided, DCB biases will be applied to the TEC
             calculation. Defaults to None.
@@ -327,10 +351,22 @@ def calc_tec_from_df(
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
     """
+    if config is None:
+        config = TECConfig()
     input_lf = df.lazy()
     _require_columns(
         input_lf, ["time", "station", "prn", "azimuth", "elevation"], "calc_tec_from_df"
     )
+    input_schema = input_lf.collect_schema()
+    # RINEX geometry is already Float64. Normalize external DataFrame/Parquet
+    # inputs once so all later trigonometry and weighting use the same precision.
+    geometry_casts = [
+        pl.col(name).cast(pl.Float64)
+        for name in ("azimuth", "elevation", "rx_lat", "rx_lon")
+        if name in input_schema and input_schema[name] != pl.Float64
+    ]
+    if geometry_casts:
+        input_lf = input_lf.with_columns(geometry_casts)
     time_kind = _infer_time_kind(input_lf)
 
     lf = (
@@ -345,23 +381,48 @@ def calc_tec_from_df(
     )
 
     sampling_interval = header.sampling_interval
-    lf = lf.with_columns(
-        pl.lit(header.rx_geodetic[0], dtype=pl.Float32).alias("rx_lat"),
-        pl.lit(header.rx_geodetic[1], dtype=pl.Float32).alias("rx_lon"),
-    )
+    header_positions = [
+        pl.lit(header.rx_geodetic[index], dtype=pl.Float64).alias(name)
+        for index, name in enumerate(("rx_lat", "rx_lon"))
+        if name not in input_schema
+    ]
+    if header_positions:
+        lf = lf.with_columns(header_positions)
     if sampling_interval is None:
-        sampling_interval = int(
-            lf.select(
-                pl.col("time")
-                .diff()
-                .min()
-                .over("station", "prn")
-                .mean()
-                .dt.total_seconds()
+        # Use positive per-group cadences, including fractional seconds. A mean
+        # across satellites would misclassify mixed high/low-rate observations.
+        delta = pl.col("time").diff().dt.total_microseconds().over("station", "prn")
+        interval_us, regimes = (
+            lf.select("time", "station", "prn")
+            .sort("time")
+            .with_columns(delta.alias("_delta_us"))
+            .group_by("station", "prn")
+            .agg(pl.col("_delta_us").filter(pl.col("_delta_us") > 0).min())
+            .drop_nulls("_delta_us")
+            .select(
+                interval_us=pl.col("_delta_us").min(),
+                regimes=(
+                    (pl.col("_delta_us") > 5e6).cast(pl.UInt8) * 2
+                    + (pl.col("_delta_us") >= 10e6).cast(pl.UInt8)
+                ).n_unique(),
             )
             .collect()
-            .item()  # ty:ignore[unresolved-attribute]
+            .row(0)
         )
+        if interval_us is None:
+            raise ValueError(
+                "Cannot infer sampling interval without two distinct times in a "
+                "station/PRN; provide header.sampling_interval."
+            )
+        if regimes > 1:
+            raise ValueError(
+                "Inferred sampling intervals require different arc/cycle-slip "
+                "settings; process sampling groups separately or provide the "
+                "known header.sampling_interval."
+            )
+        sampling_interval = interval_us / 1e6
+    if sampling_interval <= 0:
+        raise ValueError("sampling_interval must be positive.")
     sampling_config = get_sampling_config(sampling_interval)
 
     lf = lf.with_columns(_leap_seconds_duration(header).alias("_leap_seconds"))
@@ -413,6 +474,10 @@ def calc_tec_from_df(
 
     lf = (
         lf.drop_nulls(["C1_val", "C2_val", "L1_val", "L2_val", "C1_freq", "C2_freq"])
+        # Sort once after selecting codes and discarding the wide raw observations.
+        # Joins can reorder rows in either engine; every time-dependent operation
+        # below sees chronological observations, and the output keeps this order.
+        .sort("time", "station", "prn")
         .with_columns(
             # sTEC from pseudorange, in TECU
             (pl.col("C2_val") - pl.col("C1_val")).mul(coeff).alias("stec_g"),
@@ -429,13 +494,13 @@ def calc_tec_from_df(
             .ge(sampling_config.arc_interval)
             .fill_null(False)
             .cum_sum()
-            .cast(pl.UInt16)
+            .cast(pl.UInt32)
             .over("station", "prn")
             .alias("arc_id")
         )
         # Detect and correct cycle slips in each arc
         .with_columns(
-            pl.struct([pl.col("time").dt.epoch("s"), pl.col("stec_p")])
+            pl.struct([pl.col("time").dt.epoch("us") / 1e6, pl.col("stec_p")])
             .map_batches(
                 lambda x: _correct_cycle_slip(
                     x.struct.field("time").fill_null(np.nan).to_numpy(),
@@ -444,6 +509,7 @@ def calc_tec_from_df(
                     sampling_config.slip_correction_window,
                 ),
                 return_dtype=pl.Float64,
+                is_elementwise=False,
             )
             .over("station", "prn", "arc_id")
             .alias("stec_p")
@@ -458,6 +524,7 @@ def calc_tec_from_df(
             .mul(pl.col("weight"))
             .sum()
             .truediv(pl.col("weight").sum())
+            .fill_nan(None)
             .over("station", "prn", "arc_id")
             .alias("offset")
         )
@@ -533,13 +600,14 @@ def calc_tec_from_df(
         cols_to_drop = cols_available.intersection(intermediate_cols) - cols_to_retain
         lf = lf.drop(cols_to_drop)
 
-    return lf.sort("time", "station", "prn")
+    # Filters, group-to-row windows and receiver-bias joins preserve the arc sort.
+    return lf
 
 
 def calc_tec_from_parquet(
     parquet_fn: str | Path,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
-    config: TECConfig = TECConfig(),
+    config: TECConfig | None = None,
 ) -> pl.LazyFrame:
     """
     Calculate the Total Electron Content (TEC) from a Parquet file containing GNSS
@@ -568,7 +636,7 @@ def calc_tec_from_rinex(
     obs_fn: str | Path | Iterable[str | Path],
     nav_fn: str | Path | Iterable[str | Path],
     bias_fn: str | Path | Iterable[str | Path] | None = None,
-    config: TECConfig = TECConfig(),
+    config: TECConfig | None = None,
     *,
     station: str | None = None,
 ) -> pl.LazyFrame:
@@ -578,8 +646,7 @@ def calc_tec_from_rinex(
 
     Args:
         obs_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX observation
-            file(s). These files must be from the same station, otherwise the output
-            DataFrame will be incorrect.
+            file(s). These files must be from the same station.
         nav_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX navigation
             file(s).
         bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
@@ -593,6 +660,8 @@ def calc_tec_from_rinex(
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
     """
+    if config is None:
+        config = TECConfig()
     header, lf = read_rinex_obs(obs_fn, nav_fn, config.constellations, station=station)
 
     return calc_tec_from_df(lf, header, bias_fn, config)

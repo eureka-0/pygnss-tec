@@ -71,10 +71,10 @@ class TECConfig:
     min_snr: float = 30.0
     """Minimum signal-to-noise ratio in dB-Hz."""
 
-    c1_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=lambda: {})
+    c1_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=dict)
     """Observation codes priority list for C1 measurements."""
 
-    c2_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=lambda: {})
+    c2_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=dict)
     """Observation codes priority list for C2 measurements."""
 
     rx_bias: Literal["external", "mstd", "lsq"] | None = "external"
@@ -254,7 +254,7 @@ class SamplingConfig:
     """Window size for slip correction in number of samples."""
 
 
-def get_sampling_config(sampling_interval: int) -> SamplingConfig:
+def get_sampling_config(sampling_interval: float) -> SamplingConfig:
     if sampling_interval <= 5:
         return SamplingConfig(
             arc_interval=pl.duration(minutes=1),

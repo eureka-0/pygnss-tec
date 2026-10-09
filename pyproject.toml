@@ -3,22 +3,22 @@ name = "pygnss-tec"
 version = "0.4.2"
 description = "A Python package for GNSS RINEX file reading and total electron content (TEC) calculation with Rust-accelerated performance."
 readme = "README.md"
-requires-python = ">=3.10"
-authors = [{ name = "Xinlong Liu", email = "dblxl33236@gmail.com" }]
+requires-python = ">=3.12"
+authors = [{ name = "Xinlong Liu", email = "lxlonnng@gmail.com" }]
 keywords = ["gnss", "ionosphere", "python", "rinex", "rust", "tec"]
 classifiers = [
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Rust",
-  "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-  "numpy>=2.0.0",
-  "polars>=1.35.0",
-  "pyarrow>=21.0.0",
-  "pymap3d>=3.2.0",
-  "scipy>=1.15.3",
+    "numpy>=2.0.0",
+    "polars>=1.40.0,<3",
+    "pyarrow>=21.0.0",
+    "pymap3d>=3.2.0",
+    "scipy>=1.16.0",
 ]
 
 [project.urls]
@@ -26,15 +26,16 @@ repository = "https://github.com/Eureka-0/pygnss-tec.git"
 
 [dependency-groups]
 dev = [
-  "altair>=6.0.0",
-  "ipykernel>=6.31.0",
-  "matplotlib>=3.9.4",
-  "pandas>=2.3.3",
-  "pygithub>=2.9.1",
-  "pytest>=8.4.2",
-  "ruff>=0.14.6",
-  "scipy-stubs>=1.15.3.0",
-  "tabulate>=0.9.0",
+    "altair>=6.0.0",
+    "ipykernel>=6.31.0",
+    "matplotlib>=3.9.4",
+    "pandas>=2.3.3",
+    "pygithub>=2.9.1",
+    "pytest>=8.4.2",
+    "ruff>=0.14.6",
+    "scipy-stubs>=1.16.0",
+    "tabulate>=0.9.0",
+    "ty>=0.0.85",
 ]
 
 [build-system]

@@ -173,6 +173,8 @@ def estimate_rx_bias(
             bias_lf,
             on=["date", "station", "constellation", "C1_code", "C2_code"],
             how="left",
+            validate="m:1",
+            maintain_order="left",
         )
         .fill_nan(None)
         .drop("date", "constellation")

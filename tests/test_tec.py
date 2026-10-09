@@ -31,7 +31,7 @@ def test_calc_tec_from_rinex_matches_hatanaka(
 
     assert isinstance(df, pl.DataFrame)
     assert isinstance(df_hatanaka, pl.DataFrame)
-    assert_frame_equal(df_hatanaka, df, check_exact=False, abs_tol=1e-8)
+    assert_frame_equal(df_hatanaka, df, check_exact=False, rel_tol=0, abs_tol=1e-8)
     assert df.shape == (50147, 13)
     assert_valid_tec_frame(df)
     assert 35 < _median(df, "vtec") < 50
@@ -49,7 +49,7 @@ def test_calc_tec_from_df_matches_rinex(rinex_obs_v3, rinex_nav_v3, bias):
     assert isinstance(from_df, pl.DataFrame)
     assert isinstance(from_rinex, pl.DataFrame)
 
-    assert_frame_equal(from_df, from_rinex, check_exact=False, abs_tol=1e-8)
+    assert_frame_equal(from_df, from_rinex, check_exact=False, rel_tol=0, abs_tol=1e-8)
     assert_valid_tec_frame(from_df)
 
 
@@ -63,7 +63,7 @@ def test_calc_tec_from_df_accepts_gps_time(rinex_obs_v3, rinex_nav_v3, bias):
     assert isinstance(from_utc, pl.DataFrame)
     assert isinstance(from_gps, pl.DataFrame)
 
-    assert_frame_equal(from_gps, from_utc, check_exact=False, abs_tol=1e-8)
+    assert_frame_equal(from_gps, from_utc, check_exact=False, rel_tol=0, abs_tol=1e-8)
 
 
 def test_calc_tec_from_df_rejects_non_utc_timezone(rinex_obs_v3, rinex_nav_v3):
@@ -94,7 +94,9 @@ def test_calc_tec_from_parquet_matches_dataframe(
     assert isinstance(from_parquet, pl.DataFrame)
     assert isinstance(from_df, pl.DataFrame)
 
-    assert_frame_equal(from_parquet, from_df, check_exact=False, abs_tol=1e-8)
+    assert_frame_equal(
+        from_parquet, from_df, check_exact=False, rel_tol=0, abs_tol=1e-8
+    )
 
 
 def test_calc_tec_from_parquet_preserves_gps_time(
@@ -111,7 +113,9 @@ def test_calc_tec_from_parquet_preserves_gps_time(
     assert isinstance(from_parquet, pl.DataFrame)
     assert isinstance(from_df, pl.DataFrame)
 
-    assert_frame_equal(from_parquet, from_df, check_exact=False, abs_tol=1e-8)
+    assert_frame_equal(
+        from_parquet, from_df, check_exact=False, rel_tol=0, abs_tol=1e-8
+    )
 
 
 def test_calc_tec_from_parquet_rejects_missing_metadata(tmp_path, rinex_obs_v3):
@@ -139,6 +143,18 @@ def test_calc_tec_without_bias_uses_uncorrected_stec(rinex_obs_v3, rinex_nav_v3)
     ).item()
     assert max_abs_error < 1e-10
     assert _median(df, "vtec") < 0
+
+
+def test_calc_tec_v2_without_bias_includes_recovered_observations(
+    rinex_obs_v2, rinex_nav_v2
+):
+    df = gt.calc_tec_from_rinex(
+        rinex_obs_v2, rinex_nav_v2, config=gt.TECConfig(rx_bias=None)
+    ).collect()
+
+    assert_valid_tec_frame(df, corrected=False)
+    # rinex 0.22 skipped satellite records and produced only 9,166 TEC rows.
+    assert df.height == 10933
 
 
 @pytest.mark.parametrize("method", ["mstd", "lsq"])
