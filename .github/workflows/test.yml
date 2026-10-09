@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-latest, macos-latest]
         polars: ["polars>=1.40,<2", "polars>=2,<3"]
     steps:
       - name: Checkout repository
@@ -21,6 +21,7 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: "3.13"
+          cache-suffix: ${{ github.job }}-${{ strategy.job-index }}
       - name: Install dependencies
         run: uv sync --locked
       - name: Select Polars version without changing the lockfile
@@ -38,7 +39,7 @@ jobs:
 
   pytest-compatibility:
     name: Python ${{ matrix.python }} / ${{ matrix.polars }} / ${{ matrix.engine }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +59,7 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: ${{ matrix.python }}
+          cache-suffix: ${{ github.job }}-${{ strategy.job-index }}
       - name: Install dependencies
         run: uv sync --locked
       - name: Select Polars version without changing the lockfile
@@ -77,7 +79,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -85,6 +87,7 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           python-version: "3.12"
+          cache-suffix: ${{ github.job }}-${{ strategy.job-index }}
       - name: Install dependencies
         run: uv sync --locked
       - name: Install the supported dependency floors
