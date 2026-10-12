@@ -44,6 +44,8 @@ uv run pytest
 
 ## Development Conventions
 
+Use `uv` for Python environments/scripts and prefix shell commands with `rtk` (`rtk proxy` for unsupported commands).
+
 - **Linting**: The project uses `ruff` for Python code linting.
 - **Code Formatting**: The project uses `ruff` to format the Python code.
 
@@ -60,3 +62,12 @@ uv run ruff format .
 - **Rust**: The Rust code follows standard Rust conventions and is formatted using `cargo fmt`.
 - **Testing**: Tests are located in the `tests` directory and use `pytest`. The tests cover both the Python and the Rust parts of the library.
 - **Commits**: There are no explicit commit message conventions mentioned, but the commit history shows a preference for descriptive and concise messages.
+
+## Roadmap Workflow
+
+- Read [ROADMAP.md](ROADMAP.md) and relevant task files for a requested Roadmap task. Reading does not authorize execution; ordinary development requests need not become Roadmap tasks.
+- When authorized to advance unspecified work, select from Current Focus, then user-approved plans, then high-priority `ready` tasks with satisfied dependencies. IDs, workstreams and milestones do not prescribe execution order.
+- Check the actual repository before implementation. For complex work, update the reviewable Implementation Plan and honor required human review before dependent changes.
+- Maintain concise Progress & Handoff notes with implemented work, acceptance progress, open issues, next action and constraints. Keep priority/status/dependencies only in the authoritative Roadmap or archive record.
+- Verify all Acceptance Criteria and evidence before `done`; passing tests alone may not suffice. Update the index, task file and affected docs; follow Active Tasks → Recently Completed → [History Archive](docs/roadmap-history.md), keeping concise completion records.
+- Check new findings for duplication and scope before assigning stable IDs. Preserve priorities, record real dependencies, use `backlog` for unconfirmed work and `blocked` only for a named obstacle; new records do not authorize extra implementation.

@@ -70,7 +70,7 @@ Both engines run serially with alternating measurement order. Each task's final 
 
 ## Raw reader and internal geometry comparison (2026-10-12)
 
-This comparison isolates the reader/TEC boundary change from the Phase 1 scientific fixes. The reference uses the pre-change reader and TEC source snapshot, rebuilt as a separate release extension with the same Cargo.lock. The new path reads raw observations and supplies nav_fn to TEC. Both use Python 3.14.8, Polars 2.0.0, PyArrow 26.0.0, 12 threads and the in-memory engine, with one warmup and seven serial repetitions in separate processes.
+This comparison isolates the reader/TEC boundary change from the [completed scientific correctness tasks](../docs/roadmap-history.md#completed-scientific-correctness-tasks). The reference uses the pre-change reader and TEC source snapshot, rebuilt as a separate release extension with the same Cargo.lock. The new path reads raw observations and supplies nav_fn to TEC. Both use Python 3.14.8, Polars 2.0.0, PyArrow 26.0.0, 12 threads and the in-memory engine, with one warmup and seven serial repetitions in separate processes.
 
 Input: CIBG00IDN_R_20240100000_01D_30S_MO.rnx.gz, GPS/BeiDou, all observation codes (101,663 epoch/satellite rows), BRDC00IGS_R_20240100000_01D_MN.rnx.gz navigation and CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz biases. Median elapsed times include final collection; the geometry stage decodes observations, propagates satellite positions and calculates angles. Raw-only and geometry stages are measured separately rather than subtracted.
 

@@ -370,7 +370,7 @@ Known satellite and external receiver code biases are converted to TECU and remo
 | `satellite_code_corrected_receiver_mstd_estimated` / `satellite_code_corrected_receiver_lsq_estimated` | Satellite code bias was corrected and receiver bias was estimated successfully. |
 | `receiver_estimation_failed` | Receiver estimation had insufficient usable support or failed; public TEC values are null. |
 
-The `mstd` and `lsq` methods retain their estimation assumptions; identifiability and conditioning diagnostics are planned in Phase 2. No-bias results and explicitly retained missing-bias results are relative or partially corrected products.
+The `mstd` and `lsq` methods retain their estimation assumptions; identifiability and conditioning diagnostics are planned in [T006](docs/tasks/T006.md). See [ROADMAP.md](ROADMAP.md) for the active task index. No-bias results and explicitly retained missing-bias results are relative or partially corrected products.
 
 IPP longitude uses both atan2 quadrants and is normalized to `[-180, 180)` degrees. The private navigation preparation propagates GLONASS broadcast position, velocity and acceleration in the rotating PZ-90 frame with bounded RK4 steps, accepting epochs within ±900 seconds of the broadcast reference. Unsupported or expired geometry produces null angles; satellite coordinates and availability flags remain private. The dynamics follow the [GLONASS coordinate equations](https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation) and [RTKLIB broadcast propagation](https://github.com/tomojitakasu/RTKLIB/blob/master/src/ephemeris.c). GLONASS TEC remains a separate planned capability because FDMA frequencies and bias conventions need per-satellite support.
 
