@@ -1,0 +1,75 @@
+from datetime import UTC, datetime
+
+import numpy as np
+import polars as pl
+import pytest
+from synthetic_observations import F1, F2, C, K, calculate, physical_observations
+
+import gnss_tec as gt
+from gnss_tec.tec.constants import TECConfig
+
+
+@pytest.mark.parametrize("cadence", [0.1, 1, 30])
+def test_rapid_ionosphere_is_preserved(cadence):
+    tec = np.r_[np.linspace(30, 31, 10), np.linspace(39, 41, 10)]
+    h, obs = physical_observations(tec, cadence=cadence)
+    result = calculate(h, obs)
+    np.testing.assert_allclose(result["stec_p_raw"], tec, atol=1e-6, rtol=0)
+    np.testing.assert_allclose(result["stec"], tec, atol=1e-6, rtol=0)
+    assert result["arc_id"].n_unique() == 1
+    assert "gf_change_mw_stable" in result["qc_reason"].item(10)
+
+
+@pytest.mark.parametrize("slips", [[1], [2, 4, 7], [10]])
+@pytest.mark.parametrize("both", [False, True])
+def test_early_simultaneous_and_repeated_slips_split_without_rewriting(slips, both):
+    h, obs = physical_observations(np.full(20, 30.0))
+    jump = np.zeros(20)
+    for index in slips:
+        jump[index:] += 5
+    obs = obs.with_columns(pl.Series("L1C", obs["L1C"].to_numpy() + jump))
+    if both:
+        obs = obs.with_columns(pl.Series("L2W", obs["L2W"].to_numpy() + jump))
+    result = calculate(h, obs)
+    assert result["arc_id"].n_unique() == len(slips) + 1
+    expected_phase = (obs["L1C"] / F1 - obs["L2W"] / F2) * C * K
+    np.testing.assert_allclose(result["stec_p_raw"], expected_phase, rtol=0, atol=1e-7)
+    np.testing.assert_array_equal(result["stec_p_raw"], result["stec_p"])
+    np.testing.assert_allclose(result["stec"], 30.0, atol=1e-6, rtol=0)
+
+
+def test_flags_and_rejection_policy():
+    h, obs = physical_observations(np.full(8, 30.0))
+    obs = obs.with_columns(
+        pl.Series("L1C_lli", [0, 1, 2, 0, 0, 0, 0, 0], dtype=pl.UInt8)
+    )
+    diagnostic = calculate(h, obs)
+    assert not diagnostic["qc_valid"].item(2)
+    assert diagnostic["stec"].item(2) is None
+    assert "half_cycle_invalid" in diagnostic["qc_reason"].item(2)
+    assert "loss_of_lock" in diagnostic["qc_reason"].item(1)
+    normal = gt.calc_tec_from_df(obs, h, config=TECConfig(rx_bias=None)).collect(
+        engine="in-memory"
+    )
+    assert normal.height == 7
+    assert normal["qc_valid"].all()
+
+
+@pytest.mark.parametrize(
+    "state_column", ["receiver_state", "receiver_id", "epoch_flag"]
+)
+def test_receiver_state_breaks_arcs_but_midnight_alone_does_not(state_column):
+    start = datetime(2024, 1, 10, 23, 58, tzinfo=UTC)
+    h, obs = physical_observations(np.full(10, 30.0), start=start)
+    assert calculate(h, obs)["arc_id"].n_unique() == 1
+    values = (
+        (["A"] * 5 + ["B"] * 5) if state_column == "receiver_id" else [0] * 5 + [1] * 5
+    )
+    result = calculate(
+        h,
+        obs.with_columns(
+            pl.Series(state_column, values), pl.lit("legacy.rnx").alias("source_file")
+        ),
+    )
+    assert result["arc_id"].item(5) != result["arc_id"].item(4)
+    assert {"source_file", "receiver_id"}.isdisjoint(result.columns)

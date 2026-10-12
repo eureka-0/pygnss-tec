@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -93,7 +94,7 @@ class TECConfig:
     """
 
     retain_intermediate: str | Iterable[str] | None | Literal["all"] = None
-    """Names of intermediate columns to retain in the output DataFrame."""
+    """Intermediate columns to retain; 'all' also keeps rejected diagnostic rows."""
 
     missing_bias: Literal["drop", "warn", "keep_uncorrected", "error"] = "drop"
     """How to handle observations whose matching bias is not available.
@@ -212,9 +213,9 @@ class TECConfig:
 
         if not 0 <= self.min_elevation <= 90:
             raise ValueError("min_elevation must be between 0 and 90 degrees.")
-        if self.min_snr < 0:
+        if not math.isfinite(self.min_snr) or self.min_snr < 0:
             raise ValueError("min_snr must be non-negative.")
-        if self.ipp_height <= 0:
+        if not math.isfinite(self.ipp_height) or self.ipp_height <= 0:
             raise ValueError("ipp_height must be positive.")
         if self.rx_bias not in VALID_RX_BIAS:
             raise ValueError(
@@ -241,6 +242,20 @@ class TECConfig:
             self, "c2_codes", self.validate_codes(self.c2_codes, DEFAULT_C2_CODES)
         )
 
+        for version in SUPPORTED_RINEX_VERSIONS:
+            for constellation in self.constellations:
+                first = self.c1_codes.get(version, {}).get(constellation, [])
+                second = self.c2_codes.get(version, {}).get(constellation, [])
+                supported_bands = {"G": set("125"), "C": set("125678")}[constellation]
+                if any(code[1] not in supported_bands for code in first + second):
+                    raise ValueError(
+                        "Observation codes require supported positive frequencies."
+                    )
+                if {code[1] for code in first} & {code[1] for code in second}:
+                    raise ValueError(
+                        "Code pairs must use positive, distinct frequencies."
+                    )
+
 
 @dataclass(frozen=True)
 class SamplingConfig:
@@ -251,10 +266,12 @@ class SamplingConfig:
     """TECU threshold to detect cycle slips."""
 
     slip_correction_window: int
-    """Window size for slip correction in number of samples."""
+    """Prior sample window for robust slip evidence (legacy field name)."""
 
 
 def get_sampling_config(sampling_interval: float) -> SamplingConfig:
+    if not math.isfinite(sampling_interval) or sampling_interval <= 0:
+        raise ValueError("sampling_interval must be finite and positive.")
     if sampling_interval <= 5:
         return SamplingConfig(
             arc_interval=pl.duration(minutes=1),

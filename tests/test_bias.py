@@ -16,10 +16,11 @@ import gnss_tec as gt
     ],
 )
 def test_read_bias_schema_and_dates(request, fixture_name, expected_rows, expected_end):
-    df = gt.read_bias(request.getfixturevalue(fixture_name)).collect()
+    df = gt.read_bias(request.getfixturevalue(fixture_name)).collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
 
-    assert df.shape == (expected_rows, 9)
+    assert df.shape == (expected_rows, 14)
+    assert {"source_file", "receiver_id"}.isdisjoint(df.columns)
     assert_has_columns(
         df,
         [
@@ -46,9 +47,9 @@ def test_read_bias_schema_and_dates(request, fixture_name, expected_rows, expect
 
 
 def test_read_bias_accepts_multiple_files(bias, bias_gfz):
-    cas = gt.read_bias(bias).collect()
-    gfz = gt.read_bias(bias_gfz).collect()
-    combined = gt.read_bias([bias, bias_gfz]).collect()
+    cas = gt.read_bias(bias).collect(engine="in-memory")
+    gfz = gt.read_bias(bias_gfz).collect(engine="in-memory")
+    combined = gt.read_bias([bias, bias_gfz]).collect(engine="in-memory")
     assert isinstance(cas, pl.DataFrame)
     assert isinstance(gfz, pl.DataFrame)
     assert isinstance(combined, pl.DataFrame)
@@ -64,6 +65,7 @@ def test_read_bias_reads_utf8_gzip_header(tmp_path):
             (
                 "%=BIA 1.00 GFZ 2024:011:61866 IGS 2024:010:00000 2024:010:86399 R 00000001\n"
                 "* Operational Multi ‐ GNSS Global Ionosphere Maps\n"
+                "+BIAS/DESCRIPTION\n TIME_SYSTEM G\n-BIAS/DESCRIPTION\n"
                 "+BIAS/SOLUTION\n"
                 "*BIAS SVN_ PRN STATION__ OBS1 OBS2 BIAS_START____ BIAS_END______ UNIT __ESTIMATED_VALUE____ _STD_DEV___\n"
                 " DSB       G01           C1C  C2W  2024:010:00000 2024:010:86399 ns   1.000000000000000E+00 1.000000E-01\n"
@@ -72,7 +74,7 @@ def test_read_bias_reads_utf8_gzip_header(tmp_path):
         )
     )
 
-    df = gt.read_bias(bias_file).collect()
+    df = gt.read_bias(bias_file).collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
 
     assert df.height == 1
@@ -88,9 +90,9 @@ def test_read_bias_rejects_bad_inputs(tmp_path):
     empty = tmp_path / "empty.BIA"
     empty.write_text("")
     with pytest.raises(ValueError, match="empty"):
-        gt.read_bias(empty).collect()
+        gt.read_bias(empty).collect(engine="in-memory")
 
     malformed = tmp_path / "malformed.BIA"
     malformed.write_text("not a bias file\n")
     with pytest.raises(ValueError, match=r"\+BIAS/SOLUTION"):
-        gt.read_bias(malformed).collect()
+        gt.read_bias(malformed).collect(engine="in-memory")

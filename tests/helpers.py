@@ -34,7 +34,7 @@ def assert_valid_tec_frame(df: pl.DataFrame, *, corrected: bool = True) -> None:
     assert_has_columns(df, columns)
     assert df.height > 0
     assert df.get_column("time").is_sorted()
-    assert df.get_column("time").dtype == pl.Datetime("ms", "UTC")
+    assert df.get_column("time").dtype == pl.Datetime("ns", "UTC")
     assert df.get_column("ipp_lat").is_between(-90, 90).all()
     assert df.get_column("ipp_lon").is_between(-180, 180).all()
     assert df.get_column("stec").drop_nulls().len() > 0

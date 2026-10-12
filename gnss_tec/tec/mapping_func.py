@@ -49,12 +49,20 @@ def single_layer_model(
 
     # mapping function
     sin_beta = Re * el.cos() / (Re + config.ipp_height_m)
+    sin_beta = sin_beta.clip(-1, 1)
     mf = sin_beta.arcsin().cos().pow(-1)
 
     # IPP latitude and longitude, in radians
     psi = np.pi / 2 - el - sin_beta.arcsin()
-    ipp_lat = (rx_lat.sin() * psi.cos() + rx_lat.cos() * psi.sin() * az.cos()).arcsin()
-    ipp_lon = rx_lon + (psi.sin() * az.sin() / ipp_lat.cos()).arcsin()
+    ipp_lat = (
+        (rx_lat.sin() * psi.cos() + rx_lat.cos() * psi.sin() * az.cos())
+        .clip(-1, 1)
+        .arcsin()
+    )
+    ipp_lon = rx_lon + pl.arctan2(
+        psi.sin() * az.sin() * rx_lat.cos(), psi.cos() - rx_lat.sin() * ipp_lat.sin()
+    )
+    ipp_lon = (ipp_lon + np.pi) % (2 * np.pi) - np.pi
 
     return mf, ipp_lat.degrees(), ipp_lon.degrees()
 
@@ -79,7 +87,14 @@ def modified_single_layer_model(
 
     # IPP latitude and longitude, in radians
     psi = np.pi / 2 - el - sin_beta.arcsin()
-    ipp_lat = (rx_lat.sin() * psi.cos() + rx_lat.cos() * psi.sin() * az.cos()).arcsin()
-    ipp_lon = rx_lon + (psi.sin() * az.sin() / ipp_lat.cos()).arcsin()
+    ipp_lat = (
+        (rx_lat.sin() * psi.cos() + rx_lat.cos() * psi.sin() * az.cos())
+        .clip(-1, 1)
+        .arcsin()
+    )
+    ipp_lon = rx_lon + pl.arctan2(
+        psi.sin() * az.sin() * rx_lat.cos(), psi.cos() - rx_lat.sin() * ipp_lat.sin()
+    )
+    ipp_lon = (ipp_lon + np.pi) % (2 * np.pi) - np.pi
 
     return mf, ipp_lat.degrees(), ipp_lon.degrees()

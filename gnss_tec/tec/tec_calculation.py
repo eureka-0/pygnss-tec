@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
@@ -15,6 +13,9 @@ from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
 from .bias import estimate_rx_bias, read_bias
 from .constants import SIGNAL_FREQ, TECConfig, c, get_sampling_config
 from .mapping_func import modified_single_layer_model, single_layer_model
+from .preparation import _prepare_observations
+from .quality import ARC_DTYPE, segment_arcs
+from .signals import coalesce_observations as _coalesce_observations
 
 
 def _require_columns(lf: pl.LazyFrame, columns: Iterable[str], context: str) -> None:
@@ -47,206 +48,8 @@ def _infer_time_kind(lf: pl.LazyFrame) -> Literal["utc", "gps"]:
 
 def _leap_seconds_duration(header: RinexObsHeader) -> pl.Expr:
     if header.leap_seconds is not None:
-        return pl.duration(seconds=header.leap_seconds)
+        return pl.duration(seconds=header.leap_seconds, time_unit="ns")
     return get_leap_seconds("time")
-
-
-def _handle_missing_bias(
-    codes_lf: pl.LazyFrame, required_cols: list[str], config: TECConfig
-) -> pl.LazyFrame:
-    if not required_cols or config.missing_bias == "keep_uncorrected":
-        return codes_lf
-
-    missing_expr = pl.any_horizontal([pl.col(col).is_null() for col in required_cols])
-    if config.missing_bias in {"warn", "error"}:
-        missing_count = codes_lf.filter(missing_expr).select(pl.len()).collect().item()
-        if missing_count:
-            message = (
-                f"{missing_count} station/PRN/code/day combinations are missing "
-                f"required bias columns: {', '.join(required_cols)}."
-            )
-            if config.missing_bias == "error":
-                raise ValueError(message)
-            else:
-                warnings.warn(message, stacklevel=3)
-
-    return codes_lf.filter(~missing_expr)
-
-
-def _coalesce_observations(
-    lf: pl.LazyFrame,
-    bias_lf: pl.LazyFrame | None,
-    config: TECConfig,
-    version: Literal["2", "3"],
-) -> pl.LazyFrame:
-    # --- 1. Prepare coalesced observation codes for C1 and C2. ---
-    lf = lf.with_columns(pl.col("time").dt.date().alias("date"))
-    codes_lf = (
-        lf.select("date", "station", "prn", cs.matches(r"^C\d[A-Z]{0,1}$"))
-        .group_by("date", "station", "prn")
-        .agg(pl.all().null_count() / pl.len())
-        .unpivot(
-            index=["date", "station", "prn"], variable_name="code", value_name="null_pc"
-        )
-        .filter(pl.col("null_pc") <= 0.05)
-        .drop("null_pc")
-        .with_columns(
-            pl.col("prn").cat.slice(0, 1).cast(pl.Categorical).alias("constellation"),
-            pl.col("code").cast(pl.Categorical),
-        )
-        .with_columns(
-            pl.concat_str(pl.col("constellation"), pl.lit("_"), pl.col("code"))
-            .replace_strict(
-                config.code2band(version), default=None, return_dtype=pl.UInt8
-            )
-            .alias("band")
-        )
-        .drop_nulls("band")
-        .group_by("date", "station", "constellation", "prn")
-        .agg(
-            pl.col("code").filter(pl.col("band") == 1).alias("C1_code"),
-            pl.col("code").filter(pl.col("band") == 2).alias("C2_code"),
-        )
-        .explode("C1_code", empty_as_null=True, keep_nulls=True)
-        .explode("C2_code", empty_as_null=True, keep_nulls=True)
-    )
-
-    # ---- 2. Join bias data (if provided). ----
-    if bias_lf is not None:
-        required_bias_cols = ["tx_bias"]
-        tx_bias_lf = bias_lf.filter(pl.col("station").is_null()).select(
-            "prn",
-            C1_code="obs1",
-            C2_code="obs2",
-            date=pl.col("bias_start").dt.date(),
-            tx_bias=-pl.col("estimated_value"),
-        )
-        codes_lf = codes_lf.join(
-            tx_bias_lf,
-            on=["prn", "C1_code", "C2_code", "date"],
-            how="left",
-            validate="m:1",
-        )
-
-        if config.rx_bias == "external":
-            required_bias_cols.append("rx_bias")
-            rx_bias_lf = bias_lf.drop_nulls("station").select(
-                "station",
-                constellation="prn",
-                C1_code="obs1",
-                C2_code="obs2",
-                date=pl.col("bias_start").dt.date(),
-                rx_bias=-pl.col("estimated_value"),
-            )
-            codes_lf = codes_lf.join(
-                rx_bias_lf,
-                on=["station", "constellation", "C1_code", "C2_code", "date"],
-                how="left",
-                validate="m:1",
-            )
-        codes_lf = _handle_missing_bias(codes_lf, required_bias_cols, config)
-
-    # ---- 3. Keep only the highest priority codes for C1 and C2. ----
-    codes_lf = (
-        codes_lf.with_columns(
-            pl.concat_str(pl.col("constellation"), pl.lit("_"), pl.col("C1_code"))
-            .replace_strict(
-                config.c1_priority(version), default=None, return_dtype=pl.UInt8
-            )
-            .alias("C1_priority"),
-            pl.concat_str(pl.col("constellation"), pl.lit("_"), pl.col("C2_code"))
-            .replace_strict(
-                config.c2_priority(version), default=None, return_dtype=pl.UInt8
-            )
-            .alias("C2_priority"),
-        )
-        .group_by("date", "station", "prn")
-        .agg(
-            pl.all()
-            .sort_by(
-                [
-                    pl.col("C1_priority") * 2 + pl.col("C2_priority"),
-                    pl.col("C1_code").cast(pl.String),
-                    pl.col("C2_code").cast(pl.String),
-                ],
-                descending=False,
-            )
-            .first()
-        )
-    )
-
-    # ---- 4. Join back the observation values for the coalesced codes. ----
-    def build_extract_expr(code_col_name: str) -> pl.Expr:
-        """
-        Generate an expression that extracts the value from the column named in
-        `code_col_name`.
-
-        For example, if the value in the C1_Code column is "C1C", extract the value
-        from the "C1C" column.
-        """
-        expr = None
-        # Iterate over all possible column names to build a when-then chain
-        available_cols = filter(
-            lambda x: re.match(f"^[{code_col_name[0]}]" r"\d[A-Z]{0,1}$", x),
-            lf.collect_schema().names(),
-        )
-        for col in available_cols:
-            cond = pl.col(code_col_name) == col
-            val = pl.col(col)
-            if expr is None:
-                expr = pl.when(cond).then(val)
-            else:
-                expr = expr.when(cond).then(val)
-        if expr is None:
-            return pl.lit(None)
-        return expr.otherwise(None)
-
-    return (
-        lf.join(
-            codes_lf.drop("constellation", "C1_priority", "C2_priority"),
-            on=["date", "station", "prn"],
-            how="left",
-            validate="m:1",
-        )
-        .drop("date")
-        .with_columns(
-            pl.col("C1_code").cat.slice(1, None).cast(pl.Categorical).alias("C1_band"),
-            pl.col("C2_code").cat.slice(1, None).cast(pl.Categorical).alias("C2_band"),
-        )
-        .with_columns(
-            pl.concat_str(pl.lit("L"), pl.col("C1_band")).alias("L1_code"),
-            pl.concat_str(pl.lit("L"), pl.col("C2_band")).alias("L2_code"),
-            pl.concat_str(pl.lit("S"), pl.col("C1_band")).alias("S1_code"),
-            pl.concat_str(pl.lit("S"), pl.col("C2_band")).alias("S2_code"),
-        )
-        .drop("C1_band", "C2_band")
-        .with_columns(
-            build_extract_expr("S1_code").alias("S1"),
-            build_extract_expr("S2_code").alias("S2"),
-        )
-        .with_columns(
-            (pl.col("S1").null_count() / pl.len())
-            .over("station")
-            .cast(pl.Float32)
-            .alias("S1_null_pc"),
-            (pl.col("S2").null_count() / pl.len())
-            .over("station")
-            .cast(pl.Float32)
-            .alias("S2_null_pc"),
-        )
-        .filter(
-            (pl.col("S1") >= config.min_snr) | (pl.col("S1_null_pc") > 0.5),
-            (pl.col("S2") >= config.min_snr) | (pl.col("S2_null_pc") > 0.5),
-        )
-        .drop("S1", "S2", "S1_null_pc", "S2_null_pc")
-        .with_columns(
-            build_extract_expr("C1_code").alias("C1_val"),
-            build_extract_expr("C2_code").alias("C2_val"),
-            build_extract_expr("L1_code").alias("L1_val"),
-            build_extract_expr("L2_code").alias("L2_val"),
-        )
-        .drop(cs.matches(r"^[A-Z]\d[A-Z]{0,1}$"), cs.matches(r"^[LS][12]_code$"))
-    )
 
 
 def _map_frequencies(lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -278,52 +81,16 @@ def _correct_cycle_slip(
     tec_diff_tol: float,
     window_size: int,
 ) -> NDArray[np.float64]:
-    """
-    Correct the cycle slips in the sTEC from carrier phase.
+    """Return raw phase TEC; retained for private callers of the former helper.
 
-    Args:
-        - time (np.ndarray): the time array, in seconds.
-        - stec_p (np.ndarray): the sTEC from carrier phase, in TECU.
-        - tec_diff_tol (float): the threshold of the TEC difference, in TECU.
-        - window_size (int): the size of the window for the interpolation.
-
-    Returns:
-        - np.ndarray: the cycle-slip-corrected sTEC, in TECU.
+    GF alone cannot distinguish ambiguity jumps from ionospheric changes.
+    Segmentation now uses quality.py; the legacy tuning arguments are ignored.
     """
-    stec_p_corrected = stec_p.copy()
     if not np.isfinite(time).all() or np.any(np.diff(time) <= 0):
         raise ValueError(
             "Observation times must be finite and unique within each station/PRN."
         )
-    start = -1
-    end = -1
-
-    for i, tec in enumerate(stec_p_corrected):
-        if i < window_size:
-            continue
-
-        tec_diff = abs(tec - stec_p_corrected[i - 1])
-        slipped = tec_diff > tec_diff_tol
-        if start == -1 and slipped:
-            start = i
-        elif start != -1 and slipped:
-            end = i
-
-        if start != -1 and i == len(stec_p_corrected) - 1:
-            end = len(stec_p_corrected)
-
-        if start != -1 and end != -1:
-            window = slice(start - window_size, start)
-            tp = np.interp(time[start], time[window], stec_p_corrected[window])
-            offset = tp - stec_p_corrected[start]
-            stec_p_corrected[start:end] += offset
-
-            tec_diff = abs(tec - stec_p_corrected[i - 1])
-            slipped = tec_diff > tec_diff_tol
-            start = i if slipped else -1
-            end = -1
-
-    return stec_p_corrected
+    return stec_p.copy()
 
 
 def calc_tec_from_df(
@@ -331,6 +98,8 @@ def calc_tec_from_df(
     header: RinexObsHeader,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
     config: TECConfig | None = None,
+    *,
+    nav_fn: str | Path | Iterable[str | Path] | None = None,
 ) -> pl.LazyFrame:
     """
     Calculate the Total Electron Content (TEC) from a Polars DataFrame or LazyFrame
@@ -347,6 +116,9 @@ def calc_tec_from_df(
             calculation. Defaults to None.
         config (TECConfig, optional): Configuration parameters for TEC calculation.
             Defaults to TECConfig().
+        nav_fn: Navigation file(s) for computing geometry from raw observations.
+            Required unless the input already provides azimuth and elevation.
+            Reader output must use pivot=True.
 
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
@@ -354,10 +126,12 @@ def calc_tec_from_df(
     if config is None:
         config = TECConfig()
     input_lf = df.lazy()
-    _require_columns(
-        input_lf, ["time", "station", "prn", "azimuth", "elevation"], "calc_tec_from_df"
-    )
+    _require_columns(input_lf, ["time", "station", "prn"], "calc_tec_from_df")
     input_schema = input_lf.collect_schema()
+    if "code" in input_schema and "value" in input_schema:
+        raise ValueError("TEC calculations require wide observations; use pivot=True.")
+    if nav_fn is None:
+        _require_columns(input_lf, ["azimuth", "elevation"], "calc_tec_from_df")
     # RINEX geometry is already Float64. Normalize external DataFrame/Parquet
     # inputs once so all later trigonometry and weighting use the same precision.
     geometry_casts = [
@@ -368,48 +142,75 @@ def calc_tec_from_df(
     if geometry_casts:
         input_lf = input_lf.with_columns(geometry_casts)
     time_kind = _infer_time_kind(input_lf)
+    bounds = np.iinfo(np.int64)
+    out_of_range = (
+        input_lf.select(
+            ~pl.col("time")
+            .dt.epoch("us")
+            .is_between(bounds.min // 1000 + 1, bounds.max // 1000)
+        )
+        .collect()
+        .to_series()
+        .any()
+    )
+    if out_of_range:
+        raise ValueError("Observation epoch is outside the signed nanosecond range.")
+    input_lf = input_lf.with_columns(pl.col("time").dt.cast_time_unit("ns"))
+    invalid_time, duplicated = (
+        input_lf.select(
+            pl.col("time").is_null().any(),
+            pl.struct("time", "station", "prn")
+            .is_duplicated()
+            .any()
+            .alias("_duplicated"),
+        )
+        .collect()
+        .row(0)
+    )
+    if invalid_time or duplicated:
+        raise ValueError(
+            "Observation times must be finite and unique within each station/PRN."
+        )
 
     lf = (
         input_lf.with_columns(pl.col("prn").cast(pl.Categorical))
-        # Filter by minimum elevation angle and constellations
-        .filter(
-            pl.col("elevation") >= config.min_elevation,
-            pl.col("prn").cat.slice(0, 1).is_in(list(config.constellations)),
-        )
+        # QC keeps rejected geometry rows for the optional diagnostic output.
+        .filter(pl.col("prn").cat.slice(0, 1).is_in(list(config.constellations)))
         # drop D-code observations
         .drop(cs.matches(r"^D\d[A-Z]{0,1}$"))
     )
 
+    utc_epoch = (
+        pl.col("time")
+        if time_kind == "utc"
+        else (pl.col("time") - _leap_seconds_duration(header)).dt.replace_time_zone(
+            "UTC"
+        )
+    )
+    lf = _prepare_observations(lf, header, utc_epoch, nav_fn)
     sampling_interval = header.sampling_interval
-    header_positions = [
-        pl.lit(header.rx_geodetic[index], dtype=pl.Float64).alias(name)
-        for index, name in enumerate(("rx_lat", "rx_lon"))
-        if name not in input_schema
-    ]
-    if header_positions:
-        lf = lf.with_columns(header_positions)
     if sampling_interval is None:
         # Use positive per-group cadences, including fractional seconds. A mean
         # across satellites would misclassify mixed high/low-rate observations.
-        delta = pl.col("time").diff().dt.total_microseconds().over("station", "prn")
-        interval_us, regimes = (
+        delta = pl.col("time").diff().dt.total_nanoseconds().over("station", "prn")
+        interval_ns, regimes = (
             lf.select("time", "station", "prn")
             .sort("time")
-            .with_columns(delta.alias("_delta_us"))
+            .with_columns(delta.alias("_delta_ns"))
             .group_by("station", "prn")
-            .agg(pl.col("_delta_us").filter(pl.col("_delta_us") > 0).min())
-            .drop_nulls("_delta_us")
+            .agg(pl.col("_delta_ns").filter(pl.col("_delta_ns") > 0).min())
+            .drop_nulls("_delta_ns")
             .select(
-                interval_us=pl.col("_delta_us").min(),
+                interval_ns=pl.col("_delta_ns").min(),
                 regimes=(
-                    (pl.col("_delta_us") > 5e6).cast(pl.UInt8) * 2
-                    + (pl.col("_delta_us") >= 10e6).cast(pl.UInt8)
+                    (pl.col("_delta_ns") > 5e9).cast(pl.UInt8) * 2
+                    + (pl.col("_delta_ns") >= 10e9).cast(pl.UInt8)
                 ).n_unique(),
             )
             .collect()
             .row(0)
         )
-        if interval_us is None:
+        if interval_ns is None:
             raise ValueError(
                 "Cannot infer sampling interval without two distinct times in a "
                 "station/PRN; provide header.sampling_interval."
@@ -420,9 +221,9 @@ def calc_tec_from_df(
                 "settings; process sampling groups separately or provide the "
                 "known header.sampling_interval."
             )
-        sampling_interval = interval_us / 1e6
-    if sampling_interval <= 0:
-        raise ValueError("sampling_interval must be positive.")
+        sampling_interval = interval_ns / 1e9
+    if not np.isfinite(sampling_interval) or sampling_interval <= 0:
+        raise ValueError("sampling_interval must be finite and positive.")
     sampling_config = get_sampling_config(sampling_interval)
 
     lf = lf.with_columns(_leap_seconds_duration(header).alias("_leap_seconds"))
@@ -472,69 +273,277 @@ def calc_tec_from_df(
     coeff = f1**2 * f2**2 / (f1**2 - f2**2) / 40.3e16
     tecu_per_ns = 1e-9 * c * coeff
 
+    # Raw observations and phase remain available for diagnostics.
+    available = set(lf.collect_schema().names())
+    defaults = [pl.lit(0, dtype=pl.UInt8).alias("epoch_flag")]
+    lf = lf.with_columns([e for e in defaults if e.meta.output_name() not in available])
+    receiver_state = pl.col("_receiver_state")
+    lf = lf.sort("time", "station", "prn").with_columns(
+        (pl.col("C2_val") - pl.col("C1_val")).mul(coeff).alias("stec_g"),
+        (pl.col("L1_val") / f1 - pl.col("L2_val") / f2)
+        .mul(c * coeff)
+        .alias("stec_p_raw"),
+        (
+            pl.col("L1_val")
+            - pl.col("L2_val")
+            - (f1 * pl.col("C1_val") + f2 * pl.col("C2_val"))
+            / (f1 + f2)
+            / (c / (f1 - f2))
+        ).alias("mw"),
+        pl.all_horizontal(pl.col("C1_val", "C2_val", "L1_val", "L2_val").is_finite())
+        .fill_null(False)
+        .alias("_observations_valid"),
+        pl.all_horizontal(
+            pl.col("C1_freq", "C2_freq").is_finite()
+            & (pl.col("C1_freq", "C2_freq") > 0)
+        )
+        .fill_null(False)
+        .alias("_frequencies_valid"),
+        (
+            pl.all_horizontal(
+                pl.col(
+                    "azimuth",
+                    "elevation",
+                    "rx_lat",
+                    "rx_lon",
+                    "mf",
+                    "ipp_lat",
+                    "ipp_lon",
+                ).is_finite()
+            )
+            & pl.col("elevation").is_between(0, 90)
+            & pl.col("rx_lat").is_between(-90, 90)
+            & (pl.col("mf") > 0)
+        )
+        .fill_null(False)
+        .alias("_geometry_valid"),
+        pl.col("elevation").radians().sin().pow(2).alias("weight"),
+        (
+            ((pl.col("L1_lli").fill_null(0) // 2) % 2 == 0)
+            & ((pl.col("L2_lli").fill_null(0) // 2) % 2 == 0)
+        ).alias("_half_cycle_valid"),
+    )
+    # Known frequencies are positive and distinct; configuration validates pairs.
     lf = (
-        lf.drop_nulls(["C1_val", "C2_val", "L1_val", "L2_val", "C1_freq", "C2_freq"])
-        # Sort once after selecting codes and discarding the wide raw observations.
-        # Joins can reorder rows in either engine; every time-dependent operation
-        # below sees chronological observations, and the output keeps this order.
-        .sort("time", "station", "prn")
-        .with_columns(
-            # sTEC from pseudorange, in TECU
-            (pl.col("C2_val") - pl.col("C1_val")).mul(coeff).alias("stec_g"),
-            # sTEC from carrier phase, in TECU
-            (pl.col("L1_val") / f1 - pl.col("L2_val") / f2)
-            .mul(c * coeff)
-            .alias("stec_p"),
-        )
-        .drop("C1_val", "C2_val", "L1_val", "L2_val")
-        # Identify arcs based on time gaps
-        .with_columns(
-            pl.col("time")
-            .diff()
-            .ge(sampling_config.arc_interval)
+        lf.with_columns(
+            (
+                pl.col("_observations_valid")
+                & pl.col("_frequencies_valid")
+                & pl.col("_geometry_valid")
+                & pl.all_horizontal(pl.col("stec_g", "stec_p_raw", "mw").is_finite())
+                & pl.col("_snr_valid")
+                & (pl.col("elevation") >= config.min_elevation)
+                & ~pl.col("_bias_rejected")
+                & pl.col("epoch_flag").is_in([0, 1])
+            )
             .fill_null(False)
-            .cum_sum()
-            .cast(pl.UInt32)
-            .over("station", "prn")
-            .alias("arc_id")
+            .alias("_numeric_valid")
         )
-        # Detect and correct cycle slips in each arc
         .with_columns(
-            pl.struct([pl.col("time").dt.epoch("us") / 1e6, pl.col("stec_p")])
+            (pl.col("_numeric_valid") & pl.col("_half_cycle_valid")).alias("qc_valid")
+        )
+        .with_columns(
+            pl.struct(
+                pl.col("time").dt.epoch("ns"),
+                "stec_p_raw",
+                "stec_g",
+                "mw",
+                "_numeric_valid",
+                "L1_lli",
+                "L2_lli",
+                "epoch_flag",
+                receiver_state.alias("receiver_state"),
+                "C1_code",
+                "C2_code",
+            )
             .map_batches(
-                lambda x: _correct_cycle_slip(
-                    x.struct.field("time").fill_null(np.nan).to_numpy(),
-                    x.struct.field("stec_p").fill_null(np.nan).to_numpy(),
+                lambda samples: segment_arcs(
+                    samples,
+                    sampling_interval if header.sampling_interval is not None else None,
                     sampling_config.slip_tec_threshold,
                     sampling_config.slip_correction_window,
                 ),
-                return_dtype=pl.Float64,
+                return_dtype=ARC_DTYPE,
                 is_elementwise=False,
             )
-            .over("station", "prn", "arc_id")
-            .alias("stec_p")
+            .over("station", "prn")
+            .alias("_arc"),
+            pl.col("stec_p_raw").alias("stec_p"),
         )
-        # Level phase sTEC to pseudorange sTEC using elevation-based weighted offset
-        .with_columns(
-            (pl.col("stec_g") - pl.col("stec_p")).alias("raw_offset"),
-            pl.col("elevation").radians().sin().pow(2).alias("weight"),
+        .unnest("_arc")
+    )
+    lf = lf.with_columns(
+        pl.concat_str(
+            pl.col("qc_reason"),
+            pl.when(~pl.col("_observations_valid"))
+            .then(pl.lit("nonfinite_or_missing_observation"))
+            .otherwise(None),
+            pl.when(~pl.col("_geometry_valid"))
+            .then(pl.lit("invalid_geometry"))
+            .otherwise(None),
+            pl.when(~pl.col("_snr_valid")).then(pl.lit("snr_rejected")).otherwise(None),
+            pl.when(pl.col("elevation") < config.min_elevation)
+            .then(pl.lit("below_min_elevation"))
+            .otherwise(None),
+            pl.when(pl.col("_bias_rejected"))
+            .then(pl.lit("missing_required_bias"))
+            .otherwise(None),
+            separator="|",
+            ignore_nulls=True,
+        ).alias("qc_reason")
+    )
+    if bias_fn is not None:
+        lf = lf.with_columns(pl.col("tx_bias").mul(tecu_per_ns))
+        if config.rx_bias == "external":
+            lf = lf.with_columns(pl.col("rx_bias").mul(tecu_per_ns))
+        else:
+            lf = lf.with_columns(pl.lit(None, dtype=pl.Float64).alias("rx_bias"))
+        code_bias = pl.col("tx_bias").fill_null(0)
+        if config.rx_bias == "external":
+            code_bias = code_bias + pl.col("rx_bias").fill_null(0)
+        interval_cols = ["tx_bias_start", "tx_bias_end"]
+        if config.rx_bias == "external":
+            interval_cols += ["rx_bias_start", "rx_bias_end"]
+        lf = lf.with_columns(
+            pl.when(pl.col("_bias_available"))
+            .then(
+                pl.lit(
+                    "external_code_corrected"
+                    if config.rx_bias == "external"
+                    else "satellite_code_corrected"
+                )
+            )
+            .otherwise(pl.lit("uncorrected_missing_bias"))
+            .alias("calibration_status"),
+            pl.concat_str(
+                *[
+                    pl.col(n).cast(pl.String).fill_null("missing")
+                    for n in interval_cols
+                ],
+                pl.col("_bias_available").cast(pl.String),
+                separator="|",
+            ).alias("level_id"),
+            code_bias.alias("_code_bias"),
+        )
+    else:
+        lf = lf.with_columns(
+            pl.lit("uncorrected_no_bias_product").alias("calibration_status"),
+            pl.lit("no_bias_product").alias("level_id"),
+            pl.lit(0.0).alias("_code_bias"),
+        )
+
+    # Calibrate the code reference BEFORE leveling. Physical arcs are independent
+    # of bias validity intervals, which delimit separate leveling estimates.
+    lf = (
+        lf.with_columns(
+            (pl.col("stec_g") - pl.col("_code_bias")).alias("stec_g_corrected")
         )
         .with_columns(
-            pl.col("raw_offset")
-            .mul(pl.col("weight"))
-            .sum()
-            .truediv(pl.col("weight").sum())
+            (
+                pl.col("qc_valid")
+                & (pl.col("stec_g_corrected") - pl.col("stec_p_raw")).is_finite()
+            ).alias("qc_valid"),
+            pl.concat_str(
+                pl.col("qc_reason"),
+                pl.when(
+                    ~(pl.col("stec_g_corrected") - pl.col("stec_p_raw"))
+                    .is_finite()
+                    .fill_null(False)
+                )
+                .then(pl.lit("invalid_code_phase_offset"))
+                .otherwise(None),
+                separator="|",
+                ignore_nulls=True,
+            ).alias("qc_reason"),
+        )
+        .with_columns(
+            pl.when(pl.col("qc_valid") & (pl.col("weight") > 0))
+            .then(
+                (pl.col("stec_g_corrected") - pl.col("stec_p_raw")) * pl.col("weight")
+            )
+            .otherwise(None)
+            .alias("_weighted_offset"),
+            pl.when(pl.col("qc_valid") & (pl.col("weight") > 0))
+            .then(pl.col("weight"))
+            .otherwise(None)
+            .alias("_valid_weight"),
+        )
+        .with_columns(
+            (pl.col("_weighted_offset").sum() / pl.col("_valid_weight").sum())
+            .over("station", "prn", "arc_id", "level_id")
             .fill_nan(None)
-            .over("station", "prn", "arc_id")
             .alias("offset")
         )
         .with_columns(
-            # levelled sTEC, in TECU
-            (pl.col("stec_p") + pl.col("offset")).alias("stec")
+            pl.when(pl.col("qc_valid") & pl.col("offset").is_finite())
+            .then(pl.col("stec_p_raw") + pl.col("offset"))
+            .otherwise(None)
+            .alias("_leveled")
         )
-        .drop("raw_offset", "weight")
+        .with_columns(
+            # Preserve the public raw STEC relationship without subtracting DCB twice.
+            (pl.col("_leveled") + pl.col("_code_bias")).alias("stec")
+        )
     )
-
+    if bias_fn is not None:
+        if config.rx_bias in {"mstd", "lsq"}:
+            # The solver sees only valid rows; join estimates back for diagnostics.
+            estimates = estimate_rx_bias(
+                lf.filter(pl.col("_leveled").is_finite()).drop("rx_bias"),
+                method=config.rx_bias,
+                downsample=sampling_interval < 10,
+            ).select("time", "station", "prn", "rx_bias")
+            lf = lf.drop("rx_bias").join(
+                estimates,
+                on=["time", "station", "prn"],
+                how="left",
+                validate="1:1",
+                maintain_order="left",
+            )
+            lf = lf.with_columns(
+                pl.when(pl.col("rx_bias").is_finite() & pl.col("_bias_available"))
+                .then(
+                    pl.lit(
+                        f"satellite_code_corrected_receiver_{config.rx_bias}_estimated"
+                    )
+                )
+                .when(pl.col("rx_bias").is_finite())
+                .then(pl.col("calibration_status"))
+                .otherwise(pl.lit("receiver_estimation_failed"))
+                .alias("calibration_status")
+            )
+            corrected = pl.col("_leveled") - pl.col("rx_bias")
+        else:
+            corrected = pl.col("_leveled")
+        lf = lf.with_columns(corrected.alias("stec_dcb_corrected"))
+        vtec_source = pl.col("stec_dcb_corrected")
+    else:
+        vtec_source = pl.col("_leveled")
+    lf = lf.with_columns(
+        (vtec_source / pl.col("mf")).alias("vtec"),
+        pl.col("time").sub(leap_seconds).dt.replace_time_zone("UTC"),
+    ).with_columns(
+        pl.concat_str(
+            pl.col("qc_reason"),
+            pl.when(pl.col("qc_valid") & ~pl.col("offset").is_finite().fill_null(False))
+            .then(pl.lit("no_weight_support"))
+            .otherwise(None),
+            pl.when(pl.col("calibration_status") == "receiver_estimation_failed")
+            .then(pl.lit("receiver_estimation_failed"))
+            .otherwise(None),
+            separator="|",
+            ignore_nulls=True,
+        ).alias("qc_reason"),
+        (pl.col("qc_valid") & pl.col("vtec").is_finite().fill_null(False)).alias(
+            "qc_valid"
+        ),
+    )
+    # Rejected diagnostics retain raw intermediates, with null public TEC values.
+    lf = lf.with_columns(
+        pl.when(pl.col("qc_valid")).then(pl.col(name)).otherwise(None).alias(name)
+        for name in ("stec", "vtec", "stec_dcb_corrected")
+        if name in lf.collect_schema()
+    )
     intermediate_cols = {
         "azimuth",
         "elevation",
@@ -543,51 +552,37 @@ def calc_tec_from_df(
         "mf",
         "stec_g",
         "stec_p",
+        "stec_p_raw",
+        "stec_g_corrected",
         "arc_id",
+        "level_id",
         "offset",
+        "weight",
+        "mw",
+        "C1_val",
+        "C2_val",
+        "L1_val",
+        "L2_val",
+        "S1",
+        "S2",
+        "tx_bias",
+        "rx_bias",
+        "tx_bias_start",
+        "tx_bias_end",
+        "rx_bias_start",
+        "rx_bias_end",
     }
-    if bias_fn is not None:
-        intermediate_cols.update({"tx_bias", "rx_bias"})
-
-        lf = lf.with_columns(
-            # Convert biases from ns to TECU
-            pl.col("tx_bias").fill_null(0).mul(tecu_per_ns)
-        )
-
-        if config.rx_bias is None:
-            lf = lf.with_columns(pl.lit(None).alias("rx_bias"))
-        elif config.rx_bias == "external":
-            lf = lf.with_columns(
-                # Convert biases from ns to TECU
-                pl.col("rx_bias").mul(tecu_per_ns)
-            )
-        else:
-            lf = estimate_rx_bias(
-                lf, method=config.rx_bias, downsample=sampling_interval < 10
-            )
-
-        lf = lf.with_columns(
-            # sTEC corrected for DCB biases, in TECU
-            pl.col("stec")
-            .sub(pl.col("tx_bias") + pl.col("rx_bias").fill_null(0))
-            .alias("stec_dcb_corrected")
-        ).with_columns(
-            # vTEC, in TECU
-            (pl.col("stec_dcb_corrected") / pl.col("mf")).alias("vtec"),
-            # Adjust time back to UTC
-            pl.col("time").sub(leap_seconds).dt.replace_time_zone("UTC"),
-        )
-    else:
-        lf = lf.with_columns(
-            # vTEC, in TECU
-            (pl.col("stec") / pl.col("mf")).alias("vtec"),
-            # Adjust time back to UTC
-            pl.col("time").sub(leap_seconds).dt.replace_time_zone("UTC"),
-        )
+    private_cols = [
+        name
+        for name in lf.collect_schema().names()
+        if name.startswith("_") and name != "_leap_seconds"
+    ]
+    lf = lf.drop(private_cols)
 
     lf = lf.drop("_leap_seconds")
 
     if config.retain_intermediate != "all":
+        lf = lf.filter(pl.col("qc_valid"))
         cols_to_retain = set()
         if config.retain_intermediate is None:
             pass
@@ -601,13 +596,27 @@ def calc_tec_from_df(
         lf = lf.drop(cols_to_drop)
 
     # Filters, group-to-row windows and receiver-bias joins preserve the arc sort.
-    return lf
+    # Legacy inputs may carry provenance columns; use identity for arcs, then omit it.
+    return lf.drop(
+        "source_file",
+        "receiver_id",
+        "receiver_state",
+        "epoch_events",
+        "sat_x",
+        "sat_y",
+        "sat_z",
+        "geometry_status",
+        "half_cycle_valid",
+        strict=False,
+    )
 
 
 def calc_tec_from_parquet(
     parquet_fn: str | Path,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
     config: TECConfig | None = None,
+    *,
+    nav_fn: str | Path | Iterable[str | Path] | None = None,
 ) -> pl.LazyFrame:
     """
     Calculate the Total Electron Content (TEC) from a Parquet file containing GNSS
@@ -621,6 +630,9 @@ def calc_tec_from_parquet(
             calculation. Defaults to None.
         config (TECConfig, optional): Configuration parameters for TEC calculation.
             Defaults to TECConfig().
+        nav_fn (str | Path | Iterable[str | Path] | None, optional): Navigation
+            file(s) for raw observations saved with header.to_metadata(). Required
+            unless the stored observations already contain azimuth and elevation.
 
     Returns:
         pl.LazyFrame: A LazyFrame containing the calculated TEC values.
@@ -629,7 +641,7 @@ def calc_tec_from_parquet(
     metadata = pl.read_parquet_metadata(parquet_fn)
     header = RinexObsHeader.from_metadata(metadata)
 
-    return calc_tec_from_df(lf, header, bias_fn, config)
+    return calc_tec_from_df(lf, header, bias_fn, config, nav_fn=nav_fn)
 
 
 def calc_tec_from_rinex(
@@ -662,6 +674,6 @@ def calc_tec_from_rinex(
     """
     if config is None:
         config = TECConfig()
-    header, lf = read_rinex_obs(obs_fn, nav_fn, config.constellations, station=station)
+    header, lf = read_rinex_obs(obs_fn, config.constellations, station=station)
 
-    return calc_tec_from_df(lf, header, bias_fn, config)
+    return calc_tec_from_df(lf, header, bias_fn, config, nav_fn=nav_fn)

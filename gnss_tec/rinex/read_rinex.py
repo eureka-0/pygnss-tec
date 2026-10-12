@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
@@ -9,6 +10,8 @@ import polars as pl
 import pymap3d as pm
 
 from .._core import _read_obs
+
+ReceiverHeader = tuple[int, tuple[float, float, float], str | None]
 
 ALL_CONSTELLATIONS = {
     "C": "BDS",
@@ -22,25 +25,25 @@ ALL_CONSTELLATIONS = {
 """All supported GNSS constellations for RINEX file reading."""
 
 LEAP_SECONDS = [
-    (pl.datetime(1980, 1, 1), pl.duration(seconds=0)),
-    (pl.datetime(1981, 7, 1), pl.duration(seconds=1)),
-    (pl.datetime(1982, 7, 1), pl.duration(seconds=2)),
-    (pl.datetime(1983, 7, 1), pl.duration(seconds=3)),
-    (pl.datetime(1985, 7, 1), pl.duration(seconds=4)),
-    (pl.datetime(1988, 1, 1), pl.duration(seconds=5)),
-    (pl.datetime(1990, 1, 1), pl.duration(seconds=6)),
-    (pl.datetime(1991, 1, 1), pl.duration(seconds=7)),
-    (pl.datetime(1992, 7, 1), pl.duration(seconds=8)),
-    (pl.datetime(1993, 7, 1), pl.duration(seconds=9)),
-    (pl.datetime(1994, 7, 1), pl.duration(seconds=10)),
-    (pl.datetime(1996, 1, 1), pl.duration(seconds=11)),
-    (pl.datetime(1997, 7, 1), pl.duration(seconds=12)),
-    (pl.datetime(1999, 1, 1), pl.duration(seconds=13)),
-    (pl.datetime(2006, 1, 1), pl.duration(seconds=14)),
-    (pl.datetime(2009, 1, 1), pl.duration(seconds=15)),
-    (pl.datetime(2012, 7, 1), pl.duration(seconds=16)),
-    (pl.datetime(2015, 7, 1), pl.duration(seconds=17)),
-    (pl.datetime(2017, 1, 1), pl.duration(seconds=18)),
+    (pl.datetime(1980, 1, 1), pl.duration(seconds=0, time_unit="ns")),
+    (pl.datetime(1981, 7, 1), pl.duration(seconds=1, time_unit="ns")),
+    (pl.datetime(1982, 7, 1), pl.duration(seconds=2, time_unit="ns")),
+    (pl.datetime(1983, 7, 1), pl.duration(seconds=3, time_unit="ns")),
+    (pl.datetime(1985, 7, 1), pl.duration(seconds=4, time_unit="ns")),
+    (pl.datetime(1988, 1, 1), pl.duration(seconds=5, time_unit="ns")),
+    (pl.datetime(1990, 1, 1), pl.duration(seconds=6, time_unit="ns")),
+    (pl.datetime(1991, 1, 1), pl.duration(seconds=7, time_unit="ns")),
+    (pl.datetime(1992, 7, 1), pl.duration(seconds=8, time_unit="ns")),
+    (pl.datetime(1993, 7, 1), pl.duration(seconds=9, time_unit="ns")),
+    (pl.datetime(1994, 7, 1), pl.duration(seconds=10, time_unit="ns")),
+    (pl.datetime(1996, 1, 1), pl.duration(seconds=11, time_unit="ns")),
+    (pl.datetime(1997, 7, 1), pl.duration(seconds=12, time_unit="ns")),
+    (pl.datetime(1999, 1, 1), pl.duration(seconds=13, time_unit="ns")),
+    (pl.datetime(2006, 1, 1), pl.duration(seconds=14, time_unit="ns")),
+    (pl.datetime(2009, 1, 1), pl.duration(seconds=15, time_unit="ns")),
+    (pl.datetime(2012, 7, 1), pl.duration(seconds=16, time_unit="ns")),
+    (pl.datetime(2015, 7, 1), pl.duration(seconds=17, time_unit="ns")),
+    (pl.datetime(2017, 1, 1), pl.duration(seconds=18, time_unit="ns")),
 ]
 """List of leap seconds as (datetime, duration) tuples."""
 
@@ -86,13 +89,36 @@ class RinexObsHeader:
     """Approximate receiver position in geodetic coordinates (latitude, longitude,
         altitude) in degrees and meters."""
 
-    sampling_interval: int | None
+    sampling_interval: float | None
     """Sampling interval in seconds."""
 
     leap_seconds: int | None
     """Number of leap seconds."""
 
-    def to_dict(self) -> dict[str, str | int | tuple[float, float, float] | None]:
+    epoch_resolution: str = "ns"
+    """Integer epoch resolution; parsed observations use nanoseconds."""
+
+    epoch_events: tuple[tuple[int, int, str], ...] = ()
+    """UTC nanosecond timestamp, RINEX event flag and original event records."""
+
+    receiver_id: str | None = None
+    """Receiver serial number, model and firmware identity, if supplied."""
+
+    receiver_history: tuple[ReceiverHeader, ...] = ()
+    """Per-file first UTC epoch, original ECEF position and receiver identity."""
+
+    def to_dict(
+        self,
+    ) -> dict[
+        str,
+        str
+        | int
+        | float
+        | tuple[float, float, float]
+        | tuple[tuple[int, int, str], ...]
+        | tuple[ReceiverHeader, ...]
+        | None,
+    ]:
         return {
             "version": self.version,
             "constellation": self.constellation,
@@ -102,6 +128,10 @@ class RinexObsHeader:
             "rx_geodetic": self.rx_geodetic,
             "sampling_interval": self.sampling_interval,
             "leap_seconds": self.leap_seconds,
+            "epoch_resolution": self.epoch_resolution,
+            "epoch_events": self.epoch_events,
+            "receiver_id": self.receiver_id,
+            "receiver_history": self.receiver_history,
         }
 
     def to_metadata(self) -> dict[str, str]:
@@ -120,8 +150,14 @@ class RinexObsHeader:
             "rx_geodetic_lat": str(self.rx_geodetic[0]),
             "rx_geodetic_lon": str(self.rx_geodetic[1]),
             "rx_geodetic_alt": str(self.rx_geodetic[2]),
-            "sampling_interval": str(self.sampling_interval or ""),
-            "leap_seconds": str(self.leap_seconds or ""),
+            "sampling_interval": ""
+            if self.sampling_interval is None
+            else str(self.sampling_interval),
+            "leap_seconds": "" if self.leap_seconds is None else str(self.leap_seconds),
+            "epoch_resolution": self.epoch_resolution,
+            "epoch_events": json.dumps(self.epoch_events),
+            "receiver_id": self.receiver_id or "",
+            "receiver_history": json.dumps(self.receiver_history),
         }
 
     @staticmethod
@@ -155,7 +191,7 @@ class RinexObsHeader:
         """
         RinexObsHeader.validate_metadata(metadata)
         sampling_interval = (
-            int(metadata["sampling_interval"])
+            float(metadata["sampling_interval"])
             if metadata["sampling_interval"]
             else None
         )
@@ -179,6 +215,20 @@ class RinexObsHeader:
             ),
             sampling_interval=sampling_interval,
             leap_seconds=leap_seconds,
+            epoch_resolution=metadata.get("epoch_resolution", "ms"),
+            epoch_events=tuple(
+                (int(event[0]), int(event[1]), str(event[2]))
+                for event in json.loads(metadata.get("epoch_events", "[]"))
+            ),
+            receiver_id=metadata.get("receiver_id") or None,
+            receiver_history=tuple(
+                (
+                    int(item[0]),
+                    (float(item[1][0]), float(item[1][1]), float(item[1][2])),
+                    item[2],
+                )
+                for item in json.loads(metadata.get("receiver_history", "[]"))
+            ),
         )
 
 
@@ -205,177 +255,151 @@ def _match_code(code: str) -> bool:
 
 def read_rinex_obs(
     obs_fn: str | Path | Iterable[str | Path],
-    nav_fn: str | Path | Iterable[str | Path] | None = None,
     constellations: str | None = None,
-    codes: Iterable[str] | None = None,
+    codes: str | Iterable[str] | None = None,
     *,
     utc: bool = True,
     station: str | None = None,
     pivot: bool = True,
 ) -> tuple[RinexObsHeader, pl.LazyFrame]:
-    """Read RINEX observation file into a Polars DataFrame.
+    """Decode RINEX observation values and original quality indicators.
 
     Args:
-        obs_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX observation
-            file(s). These files must be from the same station.
-        nav_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
-            RINEX navigation file(s). If provided, azimuth and elevation angles will be
-            computed. Defaults to None.
-        constellations (str | None, optional): String of constellation codes to filter
-            by. If None, all supported constellations are included. See
-            `gnss_tec.rinex.ALL_CONSTELLATIONS` for valid codes. Defaults to None.
-        codes (Iterable[str] | None, optional): Specific observation codes to extract
-            (e.g., ['C1C', 'L1C']). If None, all available observation types are
-            included. Defaults to None.
-        utc (bool, optional): Whether to convert time to UTC. If False, time will be in
-            GPS time. In this case, ensure that leap seconds **are consistent** across
-            all input files. Defaults to True.
-        station (str | None, optional): Station name to assign to the DataFrame. If
-            None, the station name from the RINEX header is used. Defaults to None.
-        pivot (bool, optional): Whether to pivot the DataFrame so that each observation
-            type has its own column. If False, the DataFrame will be in long format with
-            'code' and 'value' columns. Pivoted format is generally more convenient for
-            analysis and has better performance. Defaults to True.
+        obs_fn: Observation file(s) from one station and one RINEX major version.
+        constellations: Constellation letters to include; None includes all.
+        codes: One Python regular expression or an iterable of expressions. Each
+            expression must match an entire observation code. Exact codes still
+            work, e.g. ["C1C", "L1C"]; "[CL]1.*" selects code and phase on band 1.
+            None includes all available codes; no matches produce an empty frame.
+        utc: Return UTC epochs, or timezone-naive GPS epochs when False.
+        station: Override the station identifier from the header.
+        pivot: True returns observation columns and their <code>_lli indicators.
+            False returns code, value and lli columns, one row per observation.
 
     Returns:
-        (RinexObsHeader, pl.LazyFrame): A Dataclass containing metadata from the RINEX
-            observation file header and a LazyFrame containing the RINEX observation
-            data. For multiple files, the header describes the first file and
-            rx_lat/rx_lon columns preserve each file's receiver coordinates.
-            Observation values, angles and receiver coordinate columns use Float64.
+        Header metadata and a LazyFrame containing time, station, prn, the
+        original observation values/LLI and epoch_flag. Values use Float64;
+        derived geometry and TEC state are computed only by the TEC functions.
+        Per-file positions, receiver identities and raw event records remain in
+        header metadata, including when the observations are saved as Parquet.
 
     Raises:
-        FileNotFoundError: If the observation or navigation file does not exist.
-        ValueError: If a constellation code is unknown or observation files use
-            different stations or RINEX major versions.
+        FileNotFoundError: An observation file does not exist.
+        ValueError: Invalid code expression, unknown constellation, or files from
+            different stations, RINEX major versions or inconsistent GPS scales.
     """
     obs_fn_list = _handle_fn(obs_fn)
-    if nav_fn is not None:
-        nav_fn_list = _handle_fn(nav_fn)
-    else:
-        nav_fn_list = None
+    observation_codes = (
+        None if codes is None else [codes] if isinstance(codes, str) else list(codes)
+    )
+    if constellations is not None:
+        constellations = constellations.upper()
+        for constellation in constellations:
+            if constellation not in ALL_CONSTELLATIONS:
+                raise ValueError(
+                    f"Unknown constellation code: {constellation}. "
+                    f"Valid codes are: {', '.join(ALL_CONSTELLATIONS)}"
+                )
 
     if len(obs_fn_list) > 1:
-        # Receiver coordinates can change between daily headers. Calculate each
-        # file's angles at its own position and retain that position for TEC.
-        observation_codes = None if codes is None else list(codes)
         parts = [
-            read_rinex_obs(
-                fn, nav_fn_list, constellations, observation_codes, utc=utc, pivot=pivot
-            )
+            read_rinex_obs(fn, constellations, observation_codes, utc=utc, pivot=pivot)
             for fn in obs_fn_list
         ]
-        headers = [h for h, _ in parts]
-        if len({h.marker_name for h in headers}) != 1:
+        headers = [header for header, _ in parts]
+        if len({header.marker_name for header in headers}) != 1:
             raise ValueError(
                 "Observation files must belong to the same station; process stations separately."
             )
-        if len({h.version.split(".")[0] for h in headers}) != 1:
+        if len({header.version.split(".")[0] for header in headers}) != 1:
             raise ValueError("Observation files must use the same RINEX major version.")
-        if not utc and len({h.leap_seconds for h in headers}) != 1:
+        if not utc and len({header.leap_seconds for header in headers}) != 1:
             raise ValueError(
                 "GPS-time observation files must use consistent leap seconds."
             )
-        header = headers[0]
-        if len({h.sampling_interval for h in headers}) != 1:
-            header = replace(header, sampling_interval=None)
-        if len({h.leap_seconds for h in headers}) != 1:
-            header = replace(header, leap_seconds=None)
-        lf = pl.concat(
-            [
-                frame.with_columns(
-                    pl.lit(h.rx_geodetic[0], dtype=pl.Float64).alias("rx_lat"),
-                    pl.lit(h.rx_geodetic[1], dtype=pl.Float64).alias("rx_lon"),
-                )
-                for h, frame in parts
-            ],
-            how="diagonal",
+        history = tuple(
+            sorted(
+                (item for header in headers for item in header.receiver_history),
+                key=lambda item: item[0],
+            )
         )
+        header = replace(
+            headers[0],
+            sampling_interval=headers[0].sampling_interval
+            if len({header.sampling_interval for header in headers}) == 1
+            else None,
+            leap_seconds=headers[0].leap_seconds
+            if len({header.leap_seconds for header in headers}) == 1
+            else None,
+            receiver_id=headers[0].receiver_id
+            if len({header.receiver_id for header in headers}) == 1
+            else None,
+            receiver_history=history,
+            epoch_events=tuple(
+                sorted(
+                    {event for header in headers for event in header.epoch_events},
+                    key=lambda event: event[0],
+                )
+            ),
+        )
+        frame = pl.concat([frame for _, frame in parts], how="diagonal")
         if station is not None:
             header = replace(header, marker_name=station)
-            lf = lf.with_columns(pl.lit(station).cast(pl.Categorical).alias("station"))
-        return header, lf.sort("time", "station", "prn")
-
-    if constellations is not None:
-        constellations = constellations.upper()
-        for c in constellations:
-            if c not in ALL_CONSTELLATIONS:
-                raise ValueError(
-                    f"Unknown constellation code: {c}. "
-                    f"Valid codes are: {', '.join(ALL_CONSTELLATIONS.keys())}"
-                )
+            frame = frame.with_columns(
+                pl.lit(station).cast(pl.Categorical).alias("station")
+            )
+        return header, frame.sort(
+            ["time", "station", "prn"] + ([] if pivot else ["code"])
+        )
 
     header_dict, batch = _read_obs(
-        obs_fn_list,
-        nav_fn=nav_fn_list,
-        constellations=constellations,
-        codes=None if codes is None else list(set(codes)),
-        pivot=pivot,
+        obs_fn_list, constellations, observation_codes, pivot
     )
-    codes = list(filter(_match_code, batch.schema.names))
-    ordered_cols = ["time", "station", "prn"]
-    rx_x = header_dict["rx_x"]
-    rx_y = header_dict["rx_y"]
-    rx_z = header_dict["rx_z"]
-    rx_lat, rx_lon, rx_alt = pm.ecef2geodetic(rx_x, rx_y, rx_z, deg=True)
-
+    rx_ecef = (header_dict["rx_x"], header_dict["rx_y"], header_dict["rx_z"])
+    rx_lat, rx_lon, rx_alt = pm.ecef2geodetic(*rx_ecef, deg=True)
+    first_epoch = header_dict["first_epoch"]
     header = RinexObsHeader(
         version=header_dict["version"],
         constellation=header_dict["constellation"],
         marker_name=header_dict["station"][:4].strip() if station is None else station,
         marker_type=header_dict["marker_type"],
-        rx_ecef=(rx_x, rx_y, rx_z),
+        rx_ecef=rx_ecef,
         rx_geodetic=(float(rx_lat), float(rx_lon), float(rx_alt)),
         sampling_interval=header_dict["sampling_interval"],
         leap_seconds=header_dict["leap_seconds"],
+        epoch_events=tuple(header_dict["epoch_events"]),
+        receiver_id=header_dict["receiver_id"],
+        receiver_history=()
+        if first_epoch is None
+        else ((first_epoch, rx_ecef, header_dict["receiver_id"]),),
     )
-
-    df = pl.DataFrame(batch)
-
-    def calc_az_el(df: pl.DataFrame) -> pl.DataFrame:
-        az, el, _ = pm.ecef2aer(
-            df.get_column("sat_x"),
-            df.get_column("sat_y"),
-            df.get_column("sat_z"),
-            rx_lat,
-            rx_lon,
-            rx_alt,
-            deg=True,
-        )
-        return df.with_columns(
-            pl.Series("azimuth", az, dtype=pl.Float64),
-            pl.Series("elevation", el, dtype=pl.Float64),
-        )
-
-    if nav_fn is not None:
-        ordered_cols += ["azimuth", "elevation"]
-        df = df.pipe(calc_az_el)
-    if pivot:
-        ordered_cols += sorted(codes)
-    else:
-        ordered_cols += ["code", "value"]
-
+    frame = pl.DataFrame(batch)
+    observation_columns = (
+        sorted(name for name in frame.columns if _match_code(name))
+        + sorted(name for name in frame.columns if name.endswith("_lli"))
+        if pivot
+        else ["code", "value", "lli"]
+    )
     lf = (
-        df.lazy()
+        frame.lazy()
         .with_columns(
-            pl.col("time").cast(pl.Datetime("ms", "UTC")),
+            pl.col("time").cast(pl.Datetime("ns", "UTC")),
             pl.lit(header.marker_name).cast(pl.Categorical).alias("station"),
             pl.col("prn").cast(pl.Categorical),
         )
         .fill_nan(None)
-        .select(ordered_cols)
-        .sort(["time", "station", "prn"])
+        .select("time", "station", "prn", *observation_columns, "epoch_flag")
+        .sort(["time", "station", "prn"] + ([] if pivot else ["code"]))
     )
-
     if not utc:
         lf = lf.with_columns(
-            pl.col("time")
-            .add(
-                get_leap_seconds("time")
-                if header.leap_seconds is None
-                else pl.duration(seconds=header.leap_seconds)
-            )
-            .dt.replace_time_zone(None)
+            (
+                pl.col("time")
+                + (
+                    get_leap_seconds("time")
+                    if header.leap_seconds is None
+                    else pl.duration(seconds=header.leap_seconds, time_unit="ns")
+                )
+            ).dt.replace_time_zone(None)
         )
-
     return header, lf

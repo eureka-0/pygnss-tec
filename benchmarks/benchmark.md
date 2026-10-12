@@ -5,7 +5,7 @@ Dependencies: {"numpy": "2.5.3", "polars": "2.0.0", "pyarrow": "26.0.0", "pygnss
 Polars threads: 12; warm-up runs per engine/task: 1; measured runs per engine/task: 7.
 Measured at 2026-10-09T09:38:44+00:00; native extension SHA-256: eea7ecbe79ba393b2362bc3797f5829d15237e02a938c4671f00801cd7d63889.
 
-Read includes navigation parsing and satellite azimuth/elevation calculation. Read-and-TEC uses the same reader scope; TEC-only starts with observations already in memory.
+This historical engine comparison predates the raw-reader API and current quality-control implementation. Its Read stage includes navigation parsing and satellite azimuth/elevation calculation; TEC-only starts with observations and geometry already in memory. In the current `bench.py`, Read decodes raw observations, Read-and-TEC also prepares navigation/geometry, and TEC-only starts with prepared resident geometry. The reader-boundary comparison below uses the current scientific implementation.
 RINEX 2 uses no DCB correction: the supplied CAS files do not contain matching C1/C2 biases. RINEX 3 uses external CAS DCBs. Empty outputs fail the benchmark.
 Task sizes are the total on-disk observation file sizes, excluding navigation and bias files. For TEC-only, they refer to the source files rather than DataFrame memory usage.
 Both engines run serially with alternating measurement order. Each task's final results are compared outside timing: identities, dtypes, null masks and numerical values (rel_tol=0, abs_tol=1e-8).
@@ -68,3 +68,18 @@ Both engines run serially with alternating measurement order. Each task's final 
 | read-and-TEC-two-days-BELE (4.67 MiB) | 32798 | 1.4589 | 1.4533–1.4872 |
 | TEC-only-two-days-BELE (4.67 MiB) | 32798 | 0.0501 | 0.0463–0.0536 |
 
+## Raw reader and internal geometry comparison (2026-10-12)
+
+This comparison isolates the reader/TEC boundary change from the Phase 1 scientific fixes. The reference uses the pre-change reader and TEC source snapshot, rebuilt as a separate release extension with the same Cargo.lock. The new path reads raw observations and supplies nav_fn to TEC. Both use Python 3.14.8, Polars 2.0.0, PyArrow 26.0.0, 12 threads and the in-memory engine, with one warmup and seven serial repetitions in separate processes.
+
+Input: CIBG00IDN_R_20240100000_01D_30S_MO.rnx.gz, GPS/BeiDou, all observation codes (101,663 epoch/satellite rows), BRDC00IGS_R_20240100000_01D_MN.rnx.gz navigation and CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz biases. Median elapsed times include final collection; the geometry stage decodes observations, propagates satellite positions and calculates angles. Raw-only and geometry stages are measured separately rather than subtracted.
+
+| Work | Previous path (s) | Current path (s) | Change |
+| --- | ---: | ---: | ---: |
+| Raw observation decoding | 0.7668 | 0.7699 | +0.4% |
+| Observation decoding and geometry | 0.8844 | 0.9482 | +7.2% |
+| Observation decoding and complete TEC | 1.7504 | 1.8909 | +8.0% |
+
+Satellite ECEF propagation remains Rust; azimuth/elevation remain Python pymap3d.ecef2aer. An additional resident-data comparison measured the angle conversion calls at approximately 4.36/8.92 ms for the previous/current paths. The new call supports per-row receiver positions and returns a Polars struct; its roughly 5 ms increment accounts for only a small part of the end-to-end difference. The new preparation also extracts unique epoch/satellite keys and joins geometry and receiver history. These measurements do not attribute the full difference to any single operation, and they are not a general speedup claim.
+
+All satellite ECEF values are exactly equal. Angles and the 50,315 TEC rows match in identity, dtype, null masks and all 18 shared public columns (rel_tol=0, abs_tol=1e-8). Removed diagnostic/helper columns are excluded from the public-schema comparison.

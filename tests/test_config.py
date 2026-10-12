@@ -83,3 +83,18 @@ def test_sampling_config_thresholds():
     assert high_rate.slip_correction_window == 20
     assert low_rate.slip_tec_threshold == 2.0
     assert low_rate.slip_correction_window == 10
+
+
+@pytest.mark.parametrize("name", ["ipp_height", "min_snr", "min_elevation"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_nonfinite_configuration_is_rejected(name, value):
+    with pytest.raises(ValueError):
+        TECConfig(**{name: value})
+
+
+def test_frequency_and_sampling_validation():
+    with pytest.raises(ValueError, match="distinct frequencies"):
+        TECConfig(c2_codes={"3": {"G": ["C1W"]}})
+    for value in (0, -1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="finite and positive"):
+            get_sampling_config(value)

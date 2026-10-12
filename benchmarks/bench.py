@@ -20,21 +20,22 @@ from polars.testing import assert_frame_equal
 import gnss_tec as gt
 import gnss_tec._core as core
 from gnss_tec.rinex import RinexObsHeader
+from gnss_tec.tec.preparation import _prepare_observations
 
 ROOT = Path(__file__).resolve().parents[1]
 Engine = Literal["streaming", "in-memory"]
 ENGINES: tuple[Engine, ...] = ("streaming", "in-memory")
 
 
-def read_observations(obs: list[Path], nav: list[Path], engine: Engine) -> pl.DataFrame:
-    return gt.read_rinex_obs(obs, nav)[1].collect(engine=engine)
+def read_observations(obs: list[Path], engine: Engine) -> pl.DataFrame:
+    return gt.read_rinex_obs(obs)[1].collect(engine=engine)
 
 
 def calculate(
     obs: list[Path], nav: list[Path], bias: list[Path] | None, engine: Engine
 ) -> pl.DataFrame:
-    header, lf = gt.read_rinex_obs(obs, nav)
-    return gt.calc_tec_from_df(lf, header, bias).collect(engine=engine)
+    header, lf = gt.read_rinex_obs(obs)
+    return gt.calc_tec_from_df(lf, header, bias, nav_fn=nav).collect(engine=engine)
 
 
 def calculate_from_df(
@@ -185,13 +186,19 @@ def main() -> None:
         size_mib = sum(p.stat().st_size for p in obs) / 1024**2
         for stage_index, stage in enumerate(args.stages):
             if stage == "read":
-                operation = partial(read_observations, obs, nav)
+                operation = partial(read_observations, obs)
             elif stage == "read-and-TEC":
                 operation = partial(calculate, obs, nav, bias)
             else:
                 # Both engines calculate TEC from exactly the same resident data.
-                header, lf = gt.read_rinex_obs(obs, nav)
-                cached_df = lf.collect(engine="in-memory")
+                header, lf = gt.read_rinex_obs(obs)
+                cached_df = (
+                    _prepare_observations(lf, header, pl.col("time"), nav)
+                    .select(
+                        *lf.collect_schema(), "azimuth", "elevation", "rx_lat", "rx_lon"
+                    )
+                    .collect(engine="in-memory")
+                )
                 operation = partial(calculate_from_df, cached_df, header, bias)
             # Alternate measurement order to avoid consistently favouring one engine.
             engine_order = (
@@ -232,7 +239,7 @@ def main() -> None:
         f"Polars threads: {metadata['polars_threads']}; warm-up runs per engine/task: {args.warmup}; measured runs per engine/task: {args.repeats}.",
         f"Measured at {metadata['timestamp_utc']}; native extension SHA-256: {metadata['native_core_sha256']}.",
         "",
-        "Read includes navigation parsing and satellite azimuth/elevation calculation. Read-and-TEC uses the same reader scope; TEC-only starts with observations already in memory.",
+        "Read decodes raw observations. Read-and-TEC also parses navigation and calculates satellite positions and azimuth/elevation. TEC-only starts with observations and geometry already in memory.",
         "RINEX 2 uses no DCB correction: the supplied CAS files do not contain matching C1/C2 biases. RINEX 3 uses external CAS DCBs. Empty outputs fail the benchmark.",
         "Task sizes are the total on-disk observation file sizes, excluding navigation and bias files. For TEC-only, they refer to the source files rather than DataFrame memory usage.",
         "Both engines run serially with alternating measurement order. Each task's final results are compared outside timing: identities, dtypes, null masks and numerical values (rel_tol=0, abs_tol=1e-8).",

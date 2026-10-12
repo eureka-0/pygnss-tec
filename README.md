@@ -90,52 +90,89 @@ header, lf = gt.read_rinex_obs("./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_
 
 # You can read multiple files from the same station by passing a list of file paths
 # header, lf = gt.read_rinex_obs(["./data/file1.crx.gz", "./data/file2.crx.gz"])
-# Multi-file observations retain each file's receiver coordinates in rx_lat/rx_lon.
+# Header metadata preserves receiver coordinates and identities for each file.
 
 # header is a dataclass containing RINEX file header information
 print(header)
-# RinexObsHeader(
-#     version='3.04',
-#     constellation='MIXED',
-#     marker_name='CIBG',
-#     marker_type='GEODETIC',
-#     rx_ecef=(-1837003.1909, 6065631.1631, -716184.055),
-#     rx_geodetic=(-6.490367937958374, 106.84916836419953, 173.0000212144293),
-#     sampling_interval=30,
-#     leap_seconds=18,
-# )
+# RinexObsHeader(version='3.04', constellation='MIXED', marker_name='CIBG', marker_type='GEODETIC', rx_ecef=(-1837003.1909, 6065631.1631, -716184.055), rx_geodetic=(-6.490367937958374, 106.84916836419953, 173.0000212144293), sampling_interval=30.0, leap_seconds=18, epoch_resolution='ns', epoch_events=(), receiver_id='6023R40127|TRIMBLE ALLOY|6.21', receiver_history=((1704844782000000000, (-1837003.1909, 6065631.1631, -716184.055), '6023R40127|TRIMBLE ALLOY|6.21'),))
 
 # lf is a polars LazyFrame, you can collect it to get a DataFrame.
 # By default, time is in UTC timezone. You can keep it in GPS time by passing `utc=False` to `read_rinex_obs`.
 print(lf.collect())
-# shape: (180_027, 71)
-# ┌─────────────────────────┬─────────┬─────┬──────────┬──────────┬──────┬──────┬──────────┬───┬──────┬──────┬──────┬──────┬──────┬──────┬──────┐
-# │ time                    ┆ station ┆ prn ┆ C1C      ┆ C1P      ┆ C1X  ┆ C1Z  ┆ C2C      ┆ … ┆ S5X  ┆ S6I  ┆ S6X  ┆ S7D  ┆ S7I  ┆ S7X  ┆ S8X  │
-# │ ---                     ┆ ---     ┆ --- ┆ ---      ┆ ---      ┆ ---  ┆ ---  ┆ ---      ┆   ┆ ---  ┆ ---  ┆ ---  ┆ ---  ┆ ---  ┆ ---  ┆ ---  │
-# │ datetime[ms, UTC]       ┆ cat     ┆ cat ┆ f64      ┆ f64      ┆ f64  ┆ f64  ┆ f64      ┆   ┆ f64  ┆ f64  ┆ f64  ┆ f64  ┆ f64  ┆ f64  ┆ f64  │
-# ╞═════════════════════════╪═════════╪═════╪══════════╪══════════╪══════╪══════╪══════════╪═══╪══════╪══════╪══════╪══════╪══════╪══════╪══════╡
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C01 ┆ null     ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ 42.9 ┆ null ┆ null ┆ 44.1 ┆ null ┆ null │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C02 ┆ null     ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ 43.0 ┆ null ┆ null ┆ 46.2 ┆ null ┆ null │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C03 ┆ null     ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ 44.5 ┆ null ┆ null ┆ 46.3 ┆ null ┆ null │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C04 ┆ null     ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ 39.9 ┆ null ┆ null ┆ 42.1 ┆ null ┆ null │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C05 ┆ null     ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ 41.1 ┆ null ┆ null ┆ 41.3 ┆ null ┆ null │
-# │ …                       ┆ …       ┆ …   ┆ …        ┆ …        ┆ …    ┆ …    ┆ …        ┆ … ┆ …    ┆ …    ┆ …    ┆ …    ┆ …    ┆ …    ┆ …    │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ R16 ┆ 2.2936e7 ┆ 2.2936e7 ┆ null ┆ null ┆ 2.2936e7 ┆ … ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ R21 ┆ 2.1521e7 ┆ 2.1521e7 ┆ null ┆ null ┆ 2.1521e7 ┆ … ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ R22 ┆ 2.3833e7 ┆ 2.3833e7 ┆ null ┆ null ┆ 2.3833e7 ┆ … ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ S32 ┆ 3.6030e7 ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ S37 ┆ 3.6282e7 ┆ null     ┆ null ┆ null ┆ null     ┆ … ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null ┆ null │
-# └─────────────────────────┴─────────┴─────┴──────────┴──────────┴──────┴──────┴──────────┴───┴──────┴──────┴──────┴──────┴──────┴──────┴──────┘
+# shape: (180_027, 140)
+# ┌─────────────────────┬─────────┬─────┬──────────┬───┬─────────┬─────────┬─────────┬────────────┐
+# │ time                ┆ station ┆ prn ┆ C1C      ┆ … ┆ S7I_lli ┆ S7X_lli ┆ S8X_lli ┆ epoch_flag │
+# │ ---                 ┆ ---     ┆ --- ┆ ---      ┆   ┆ ---     ┆ ---     ┆ ---     ┆ ---        │
+# │ datetime[ns, UTC]   ┆ cat     ┆ cat ┆ f64      ┆   ┆ u8      ┆ u8      ┆ u8      ┆ u8         │
+# ╞═════════════════════╪═════════╪═════╪══════════╪═══╪═════════╪═════════╪═════════╪════════════╡
+# │ 2024-01-09 23:59:42 ┆ CIBG    ┆ C01 ┆ null     ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-09 23:59:42 ┆ CIBG    ┆ C02 ┆ null     ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-09 23:59:42 ┆ CIBG    ┆ C03 ┆ null     ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-09 23:59:42 ┆ CIBG    ┆ C04 ┆ null     ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-09 23:59:42 ┆ CIBG    ┆ C05 ┆ null     ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ …                   ┆ …       ┆ …   ┆ …        ┆ … ┆ …       ┆ …       ┆ …       ┆ …          │
+# │ 2024-01-10 23:59:12 ┆ CIBG    ┆ R16 ┆ 2.2936e7 ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-10 23:59:12 ┆ CIBG    ┆ R21 ┆ 2.1521e7 ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-10 23:59:12 ┆ CIBG    ┆ R22 ┆ 2.3833e7 ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-10 23:59:12 ┆ CIBG    ┆ S32 ┆ 3.6030e7 ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# │ 2024-01-10 23:59:12 ┆ CIBG    ┆ S37 ┆ 3.6282e7 ┆ … ┆ null    ┆ null    ┆ null    ┆ 0          │
+# │ UTC                 ┆         ┆     ┆          ┆   ┆         ┆         ┆         ┆            │
+# └─────────────────────┴─────────┴─────┴──────────┴───┴─────────┴─────────┴─────────┴────────────┘
 ```
 
-If both observation and navigation files are provided, satellite azimuth and elevation angles will be calculated and included in the returned LazyFrame:
+The full schema depends on the observation codes and reader options. The default wide layout includes the following fields; use `lf.collect_schema()` to inspect a particular file:
+
+| Fields | Polars dtype | Meaning |
+| --- | --- | --- |
+| `time` | `Datetime('ns', 'UTC')` | Nanosecond epochs; `utc=False` returns timezone-naive GPS time at the same precision. |
+| `station`, `prn` | `Categorical` | Station and satellite identifiers. |
+| Observation codes, e.g. `C2I`, `L2I` | `Float64` | Values in the corresponding RINEX observation units. |
+| `<signal>_lli` | `UInt8` | Original loss-of-lock indicators; missing indicators remain null. |
+| `epoch_flag` | `UInt8` | Original RINEX epoch flag. |
+
+With `pivot=False`, observation values and indicators use `code` (`String`), `value` (`Float64`) and `lli` (`UInt8`). Both layouts contain only decoded RINEX observation fields and identifiers. Time conversion and an explicit `station` override retain their existing behavior.
+
+Receiver coordinates, receiver identity and special event records remain in header metadata. `receiver_history` records each file's first UTC epoch, original ECEF position and receiver identity; saving `header.to_metadata()` preserves this history for multi-file TEC calculation.
+
+The `codes` argument accepts one regular expression or an iterable of patterns. Matching is case-sensitive and uses the complete observation code: literal names such as `"C1C"` still work, `"[CL]1.*"` selects code/phase observations on band 1, and `["C1C", "L[12].*"]` combines patterns. An empty selection or no match returns an empty frame; invalid patterns raise `ValueError`. The filter works with either pivot layout:
 
 ```python
 header, lf = gt.read_rinex_obs(
     "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
-    "./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz"
+    codes="[CL]1.*",
+    pivot=False,
 )
+print(lf.collect(engine="in-memory"))
+# shape: (353_526, 7)
+# ┌─────────────────────────┬─────────┬─────┬──────┬──────────┬──────┬────────────┐
+# │ time                    ┆ station ┆ prn ┆ code ┆ value    ┆ lli  ┆ epoch_flag │
+# │ ---                     ┆ ---     ┆ --- ┆ ---  ┆ ---      ┆ ---  ┆ ---        │
+# │ datetime[ns, UTC]       ┆ cat     ┆ cat ┆ str  ┆ f64      ┆ u8   ┆ u8         │
+# ╞═════════════════════════╪═════════╪═════╪══════╪══════════╪══════╪════════════╡
+# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C20 ┆ C1X  ┆ 2.6626e7 ┆ null ┆ 0          │
+# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C20 ┆ L1X  ┆ 1.3992e8 ┆ 1    ┆ 0          │
+# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C23 ┆ C1X  ┆ 2.6088e7 ┆ null ┆ 0          │
+# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C23 ┆ L1X  ┆ 1.3710e8 ┆ null ┆ 0          │
+# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C27 ┆ C1X  ┆ 2.3733e7 ┆ null ┆ 0          │
+# │ …                       ┆ …       ┆ …   ┆ …    ┆ …        ┆ …    ┆ …          │
+# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ R22 ┆ L1P  ┆ 1.2722e8 ┆ null ┆ 0          │
+# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ S32 ┆ C1C  ┆ 3.6030e7 ┆ null ┆ 0          │
+# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ S32 ┆ L1C  ┆ 1.8934e8 ┆ null ┆ 0          │
+# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ S37 ┆ C1C  ┆ 3.6282e7 ┆ null ┆ 0          │
+# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ S37 ┆ L1C  ┆ 1.9066e8 ┆ null ┆ 0          │
+# └─────────────────────────┴─────────┴─────┴──────┴──────────┴──────┴────────────┘
 ```
+
+Navigation input belongs to TEC calculation. `read_rinex_obs` no longer accepts `nav_fn`; it does not produce satellite coordinates, azimuth/elevation, half-cycle validity or receiver state columns.
 
 ### TEC calculation
 
@@ -153,25 +190,48 @@ tec_lf = gt.calc_tec_from_rinex(
 )
 
 print(tec_lf.collect(engine="in-memory"))
-# shape: (50_147, 12)
-# ┌─────────────────────────┬─────────┬─────┬───────────┬────────────┬─────────┬─────────┬───────────┬────────────┬─────────────┬────────────────────┬───────────┐
-# │ time                    ┆ station ┆ prn ┆ rx_lat    ┆ rx_lon     ┆ C1_code ┆ C2_code ┆ ipp_lat   ┆ ipp_lon    ┆ stec        ┆ stec_dcb_corrected ┆ vtec      │
-# │ ---                     ┆ ---     ┆ --- ┆ ---       ┆ ---        ┆ ---     ┆ ---     ┆ ---       ┆ ---        ┆ ---         ┆ ---                ┆ ---       │
-# │ datetime[ms, UTC]       ┆ cat     ┆ cat ┆ f64       ┆ f64        ┆ cat     ┆ cat     ┆ f64       ┆ f64        ┆ f64         ┆ f64                ┆ f64       │
-# ╞═════════════════════════╪═════════╪═════╪═══════════╪════════════╪═════════╪═════════╪═══════════╪════════════╪═════════════╪════════════════════╪═══════════╡
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C01 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -6.021448 ┆ 110.041397 ┆ -65.178132  ┆ 37.369112          ┆ 28.186231 │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C02 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -5.874807 ┆ 105.12574  ┆ -92.766855  ┆ 30.478708          ┆ 27.233229 │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C03 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -5.987422 ┆ 107.10218  ┆ -99.906077  ┆ 27.888606          ┆ 27.553764 │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C05 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -5.77573  ┆ 102.127449 ┆ -80.838063  ┆ 37.301633          ┆ 23.284567 │
-# │ 2024-01-09 23:59:42 UTC ┆ CIBG    ┆ C06 ┆ -6.490368 ┆ 106.849167 ┆ C2I     ┆ C6I     ┆ -2.625823 ┆ 105.790565 ┆ -117.679878 ┆ 30.499514          ┆ 20.802594 │
-# │ …                       ┆ …       ┆ …   ┆ …         ┆ …          ┆ …       ┆ …       ┆ …         ┆ …          ┆ …           ┆ …                  ┆ …         │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ G18 ┆ -6.490368 ┆ 106.849167 ┆ C1C     ┆ C2W     ┆ -9.357401 ┆ 107.007019 ┆ 74.830984   ┆ 23.49472           ┆ 18.498105 │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ G23 ┆ -6.490368 ┆ 106.849167 ┆ C1C     ┆ C2W     ┆ -5.178424 ┆ 108.647789 ┆ 76.563659   ┆ 25.358676          ┆ 21.648637 │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ G25 ┆ -6.490368 ┆ 106.849167 ┆ C1C     ┆ C2W     ┆ -5.254835 ┆ 109.935173 ┆ 110.055906  ┆ 37.104073          ┆ 27.626465 │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ G28 ┆ -6.490368 ┆ 106.849167 ┆ C1C     ┆ C2W     ┆ -5.297853 ┆ 104.2929   ┆ 72.823386   ┆ 23.382123          ┆ 18.556846 │
-# │ 2024-01-10 23:59:12 UTC ┆ CIBG    ┆ G31 ┆ -6.490368 ┆ 106.849167 ┆ C1C     ┆ C2W     ┆ -7.392913 ┆ 102.960022 ┆ 73.01637    ┆ 30.59289           ┆ 20.97296  │
-# └─────────────────────────┴─────────┴─────┴───────────┴────────────┴─────────┴─────────┴───────────┴────────────┴─────────────┴────────────────────┴───────────┘
+# shape: (50_315, 18)
+# ┌─────────────┬─────────┬─────┬────────────┬───┬─────────────┬────────────┬────────────┬───────────┐
+# │ time        ┆ station ┆ prn ┆ epoch_flag ┆ … ┆ calibration ┆ stec       ┆ stec_dcb_c ┆ vtec      │
+# │ ---         ┆ ---     ┆ --- ┆ ---        ┆   ┆ _status     ┆ ---        ┆ orrected   ┆ ---       │
+# │ datetime[ns ┆ cat     ┆ cat ┆ u8         ┆   ┆ ---         ┆ f64        ┆ ---        ┆ f64       │
+# │ , UTC]      ┆         ┆     ┆            ┆   ┆ str         ┆            ┆ f64        ┆           │
+# ╞═════════════╪═════════╪═════╪════════════╪═══╪═════════════╪════════════╪════════════╪═══════════╡
+# │ 2024-01-09  ┆ CIBG    ┆ C01 ┆ 0          ┆ … ┆ external_co ┆ -64.909114 ┆ 37.638129  ┆ 28.38914  │
+# │ 23:59:42    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-09  ┆ CIBG    ┆ C02 ┆ 0          ┆ … ┆ external_co ┆ -92.43084  ┆ 30.814723  ┆ 27.533463 │
+# │ 23:59:42    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-09  ┆ CIBG    ┆ C03 ┆ 0          ┆ … ┆ external_co ┆ -100.67368 ┆ 27.121     ┆ 26.795374 │
+# │ 23:59:42    ┆         ┆     ┆            ┆   ┆ de_correcte ┆ 4          ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-09  ┆ CIBG    ┆ C05 ┆ 0          ┆ … ┆ external_co ┆ -80.385586 ┆ 37.75411   ┆ 23.567016 │
+# │ 23:59:42    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-09  ┆ CIBG    ┆ C06 ┆ 0          ┆ … ┆ external_co ┆ -117.67987 ┆ 30.499514  ┆ 20.802595 │
+# │ 23:59:42    ┆         ┆     ┆            ┆   ┆ de_correcte ┆ 8          ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ …           ┆ …       ┆ …   ┆ …          ┆ … ┆ …           ┆ …          ┆ …          ┆ …         │
+# │ 2024-01-10  ┆ CIBG    ┆ G18 ┆ 0          ┆ … ┆ external_co ┆ 66.073626  ┆ 24.891081  ┆ 19.597502 │
+# │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-10  ┆ CIBG    ┆ G23 ┆ 0          ┆ … ┆ external_co ┆ 68.029699  ┆ 27.375494  ┆ 23.37039  │
+# │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-10  ┆ CIBG    ┆ G25 ┆ 0          ┆ … ┆ external_co ┆ 69.734993  ┆ 36.552019  ┆ 27.215423 │
+# │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-10  ┆ CIBG    ┆ G28 ┆ 0          ┆ … ┆ external_co ┆ 67.675466  ┆ 25.564254  ┆ 20.288658 │
+# │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# │ 2024-01-10  ┆ CIBG    ┆ G31 ┆ 0          ┆ … ┆ external_co ┆ 73.016374  ┆ 30.592893  ┆ 20.972958 │
+# │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
+# │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
+# └─────────────┴─────────┴─────┴────────────┴───┴─────────────┴────────────┴────────────┴───────────┘
 ```
+
+The default output includes `time`, `station`, `prn`, `epoch_flag`, receiver/IPP coordinates, selected `C1_code`/`C2_code`, `L1_lli`/`L2_lli`, quality/calibration fields and TEC values. `qc_valid` (`Boolean`) and `qc_reason` (`String`) describe quality decisions; `calibration_status` (`String`) identifies the corrections actually applied. Use `tec_lf.collect_schema()` to inspect all fields. Set `TECConfig(retain_intermediate="all")` to retain intermediate values and rejected diagnostic rows. See [Observation quality and scientific conventions](#observation-quality-and-scientific-conventions) for field semantics and calibration states.
 
 #### From DataFrame or LazyFrame
 
@@ -179,25 +239,28 @@ If you wish to calculate TEC from an existing polars DataFrame or LazyFrame (e.g
 
 ```python
 header, lf = gt.read_rinex_obs(
-    "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
-    "./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz"
+    "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz"
 )
 
 # ...
 # Perform any custom preprocessing on lf if needed
 # ...
 
-tec_lf = gt.calc_tec_from_df(lf, header, "./data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz")
+tec_lf = gt.calc_tec_from_df(
+    lf,
+    header,
+    "./data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz",
+    nav_fn="./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz",
+)
 ```
 
 #### From parquet file
 
-RINEX parsing often accounts for most of the processing time. When calculating TEC repeatedly from the same observations (e.g., when tuning configuration), save the parsed observations to Parquet and use `calc_tec_from_parquet`:
+RINEX parsing often accounts for most of the processing time. When calculating TEC repeatedly from the same observations (e.g., when tuning configuration), save the parsed observations to Parquet and use `calc_tec_from_parquet`. This avoids decoding observations again; navigation and geometry are prepared inside TEC calculation:
 
 ```python
 header, lf = gt.read_rinex_obs(
-    "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
-    "./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz"
+    "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz"
 )
 
 # ...
@@ -210,7 +273,8 @@ lf.sink_parquet("./data/cibg_obs_2024010.parquet", metadata=header.to_metadata()
 
 tec_lf = gt.calc_tec_from_parquet(
     "./data/cibg_obs_2024010.parquet",
-    "./data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz"
+    "./data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz",
+    nav_fn="./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz",
 )
 ```
 
@@ -274,14 +338,41 @@ The meaning of each parameter is as follows:
 - `ipp_height`: The assumed height of the ionospheric pierce point (IPP) in kilometers.
 - `min_elevation`: The minimum satellite elevation angle (in degrees) for observations to be considered in the TEC calculation.
 - `min_snr`: The minimum signal-to-noise ratio (in dB-Hz) for observations to be considered in the TEC calculation.
-- `c1_codes`: A dictionary of ordered preferences for the first frequency (C1), by RINEX version and constellation. Together with `c2_codes`, available pairs are ranked by `2 * C1_index + C2_index` (indices start at zero); ties are resolved by code name. Partial overrides are supported, e.g., `c1_codes={'3': {'C': [...]}}` changes only the BeiDou RINEX 3 preferences.
+- `c1_codes`: A dictionary of ordered preferences for the first frequency (C1), by RINEX version and constellation. Together with `c2_codes`, pairs are ranked by complete finite P1/L1/P2/L2 availability at the epoch, required bias coverage, joint daily coverage, then `2 * C1_index + C2_index` (indices start at zero); ties are resolved by code name. A missing phase partner causes fallback to a complete pair. Partial overrides are supported, e.g., `c1_codes={'3': {'C': [...]}}` changes only the BeiDou RINEX 3 preferences.
 - `c2_codes`: A dictionary specifying the preferred observation codes for the second frequency (C2) for each RINEX version and constellation, similar to `c1_codes`.
 - `rx_bias`: Specifies how to handle receiver bias. It can be set to 'external' to use an external DCB file for correction, 'mstd' to use the minimum standard deviation method for estimation, 'lsq' to use least squares estimation, or `None` to skip receiver bias correction. Note that the receiver bias estimation is only applicable after the satellite bias has been corrected using an external DCB file (e.g., from IGS). If no external DCB file is provided, this parameter will be ignored. The 'mstd' and 'lsq' methods are for stations that are not included in the external DCB file.
 - `mapping_function`: The mapping function to use for converting slant TEC to vertical TEC. It can be set to 'slm' for the Single Layer Model or 'mslm' for the Modified Single Layer Model.
-- `retain_intermediate`: Names of intermediate columns to retain in the output DataFrame. It can be set to `None` to discard all intermediate columns, 'all' to retain all intermediate columns, or a list of column names to keep specific ones.
-- `missing_bias`: Specifies how to handle observations whose satellite or receiver bias cannot be matched from the provided DCB file. It can be set to 'drop' to keep the previous behavior, 'warn' to drop and emit a warning, 'keep_uncorrected' to retain observations and treat missing bias as zero, or 'error' to fail fast.
+- `retain_intermediate`: Names of intermediate columns to retain in the output DataFrame. `None` and a list of column names return only QC-accepted rows. `'all'` also retains rejected diagnostic rows, with null public TEC values and `qc_reason` explaining the rejection. `qc_valid` and `calibration_status` are always included. Explicitly requested TEC intermediates such as `azimuth`, `elevation`, `mf` and `stec_p_raw` remain available. Private preparation columns, satellite ECEF coordinates and receiver/event state helpers are always excluded, including with `'all'`.
+- `missing_bias`: Specifies how to handle observations whose satellite or receiver bias cannot be matched from the provided DCB file. `'drop'` rejects them, `'warn'` also emits a warning, `'keep_uncorrected'` applies only the available corrections and marks the result `uncorrected_missing_bias`, and `'error'` fails immediately. Rejected rows remain inspectable with `retain_intermediate='all'`.
 
 When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware UTC datetimes for UTC time, and timezone-naive datetimes for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
+
+### Observation quality and scientific conventions
+
+The reader exports `Datetime('ns')` epochs and floating-point sampling intervals in seconds. Header metadata records `epoch_resolution`, receiver identity and epoch events; Parquet round-trips preserve these fields. RINEX precision finer than nanoseconds and epochs outside the signed nanosecond range raise errors. Existing Parquet files with millisecond metadata remain readable.
+
+Both wide and long observation layouts preserve the original LLI: `<signal>_lli` in wide format and `lli` in long format. `epoch_flag` retains the original epoch flag. TEC interprets half-cycle validity from LLI and rebuilds receiver/event state internally from header metadata, including when observation codes are filtered. Special events without observations remain in header metadata. See the [RINEX 3.05 format specification](https://files.igs.org/pub/data/format/rinex305.pdf).
+
+TEC processing preserves the original phase-derived `stec_p_raw` (`stec_p` is the same raw series). LLI, half-cycle state, geometry-free (GF) innovations and robust Melbourne–Wübbena (MW) evidence delimit ambiguity arcs. Uncertain jumps split an arc; phase samples are never flattened. Signal-pair changes, receiver events or identity changes, rejected observations and reacquisition gaps also start new arcs. Continuous unchanged observations can share an arc across midnight. When the header has no sampling interval, cadence is inferred per station/satellite; incompatible sampling regimes require separate processing or a known header interval.
+
+External bias correction currently accepts constant code DSB products in nanoseconds with explicit GPS `TIME_SYSTEM G` metadata. Unsupported kinds, units, time scales, nonzero slopes, invalid intervals and overlaps for the same station/PRN/pair raise errors. Validity intervals are half-open `[bias_start, bias_end)`, and reversing the DSB observation pair reverses its sign. The [Bias-SINEX 1.00 specification](https://files.igs.org/pub/data/format/sinex_bias_100.pdf) defines the retained product metadata.
+
+Known satellite and external receiver code biases are converted to TECU and removed from the code reference before phase leveling. `arc_id` identifies the physical ambiguity segment; `level_id` additionally separates bias validity intervals. Leveling uses finite, accepted samples with positive elevation weights. `stec` preserves the uncorrected STEC relationship, while `stec_dcb_corrected` and `vtec` use the corrected level without subtracting the same bias twice. Estimated receiver bias is subtracted after satellite-corrected leveling. Empty or failed estimation produces null TEC and `receiver_estimation_failed`.
+
+`calibration_status` records the correction actually available:
+
+| Status | Meaning |
+| --- | --- |
+| `uncorrected_no_bias_product` | No external bias product was provided. |
+| `uncorrected_missing_bias` | Some required external biases were missing; only available corrections were applied. |
+| `satellite_code_corrected` | Satellite code bias was corrected; receiver bias was left uncorrected. |
+| `external_code_corrected` | Both satellite and receiver code biases were corrected externally. |
+| `satellite_code_corrected_receiver_mstd_estimated` / `satellite_code_corrected_receiver_lsq_estimated` | Satellite code bias was corrected and receiver bias was estimated successfully. |
+| `receiver_estimation_failed` | Receiver estimation had insufficient usable support or failed; public TEC values are null. |
+
+The `mstd` and `lsq` methods retain their estimation assumptions; identifiability and conditioning diagnostics are planned in Phase 2. No-bias results and explicitly retained missing-bias results are relative or partially corrected products.
+
+IPP longitude uses both atan2 quadrants and is normalized to `[-180, 180)` degrees. The private navigation preparation propagates GLONASS broadcast position, velocity and acceleration in the rotating PZ-90 frame with bounded RK4 steps, accepting epochs within ±900 seconds of the broadcast reference. Unsupported or expired geometry produces null angles; satellite coordinates and availability flags remain private. The dynamics follow the [GLONASS coordinate equations](https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation) and [RTKLIB broadcast propagation](https://github.com/tomojitakasu/RTKLIB/blob/master/src/ephemeris.c). GLONASS TEC remains a separate planned capability because FDMA frequencies and bias conventions need per-satellite support.
 
 ## Benchmarks
 

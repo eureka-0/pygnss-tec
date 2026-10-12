@@ -74,7 +74,7 @@ def _read_bias_file(fn: str | Path) -> pl.LazyFrame:
                 for colspec, col in zip(colspecs, cols)
             ]
         )
-        .drop("full_str", "bias", "svn")
+        .drop("full_str")
     )
 
     for col in ["bias_start", "bias_end"]:
@@ -95,7 +95,105 @@ def _read_bias_file(fn: str | Path) -> pl.LazyFrame:
             .drop("parts", "year", "doy", "sod")
         )
 
-    return lf
+    descriptors = {}
+    for line in lines[:header_marker_idx]:
+        parts = line.split()
+        if parts and parts[0] in {"TIME_SYSTEM", "BIAS_MODE", "DETERMINATION_METHOD"}:
+            descriptors[parts[0]] = " ".join(parts[1:])
+    if descriptors.get("TIME_SYSTEM") != "G":
+        raise ValueError(
+            "Only Bias-SINEX TIME_SYSTEM G (GPS) is supported; metadata is required."
+        )
+    return lf.with_columns(
+        pl.lit(descriptors["TIME_SYSTEM"]).alias("time_system"),
+        pl.lit(descriptors.get("BIAS_MODE")).alias("bias_mode"),
+        pl.lit(descriptors.get("DETERMINATION_METHOD")).alias("determination_method"),
+    )
+
+
+def prepare_code_bias(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Validate supported DSB/ns/GPS semantics and unambiguous half-open intervals.
+
+    Reverse pairs are canonicalized with a sign reversal. Validation precedes
+    matching, so an overlap cannot silently multiply or shadow observations.
+    """
+    required = {
+        "bias",
+        "unit",
+        "time_system",
+        "prn",
+        "station",
+        "obs1",
+        "obs2",
+        "bias_start",
+        "bias_end",
+        "estimated_value",
+    }
+    missing = required - set(lf.collect_schema().names())
+    if missing:
+        raise ValueError(
+            f"Bias metadata is missing required fields: {', '.join(sorted(missing))}."
+        )
+    df = lf.collect()
+    if (
+        "estimated_slope" in df.columns
+        and df.filter(
+            pl.col("estimated_slope").cast(pl.Float64).fill_null(0) != 0
+        ).height
+    ):
+        raise ValueError(
+            "Unsupported bias semantics: time-varying bias slopes are not supported."
+        )
+    supported = (
+        (pl.col("bias") == "DSB")
+        & (pl.col("unit") == "ns")
+        & (pl.col("time_system") == "G")
+        & pl.col("obs1").cast(pl.String).str.contains(r"^C\d[A-Z]?$")
+        & pl.col("obs2").cast(pl.String).str.contains(r"^C\d[A-Z]?$")
+        & (pl.col("obs1") != pl.col("obs2"))
+        & pl.col("estimated_value").is_finite()
+        & (pl.col("bias_end") > pl.col("bias_start"))
+    )
+    if df.filter(~supported.fill_null(False)).height:
+        raise ValueError(
+            "Unsupported bias semantics: require code DSB, ns, GPS G, finite values and valid start/end intervals."
+        )
+    for name in ("bias_start", "bias_end"):
+        dtype = df.schema[name]
+        if not isinstance(dtype, pl.Datetime) or dtype.time_zone is not None:
+            raise ValueError("Bias validity times must be timezone-naive GPS Datetime.")
+    reverse = pl.col("obs1").cast(pl.String) > pl.col("obs2").cast(pl.String)
+    df = (
+        df.with_columns(
+            pl.when(reverse)
+            .then(pl.col("obs2"))
+            .otherwise(pl.col("obs1"))
+            .alias("_obs1"),
+            pl.when(reverse)
+            .then(pl.col("obs1"))
+            .otherwise(pl.col("obs2"))
+            .alias("_obs2"),
+            pl.when(reverse)
+            .then(-pl.col("estimated_value"))
+            .otherwise(pl.col("estimated_value"))
+            .alias("estimated_value"),
+        )
+        .drop("obs1", "obs2")
+        .rename({"_obs1": "obs1", "_obs2": "obs2"})
+    )
+    keys = ["station", "prn", "obs1", "obs2"]
+    overlap = (
+        df.sort(*keys, "bias_start")
+        .with_columns(
+            pl.col("bias_end").cum_max().shift(1).over(keys).alias("_previous_end")
+        )
+        .filter(pl.col("bias_start") < pl.col("_previous_end"))
+    )
+    if overlap.height:
+        raise ValueError(
+            "Overlapping bias validity intervals for the same station/PRN/signal pair."
+        )
+    return df.lazy()
 
 
 def read_bias(fn: str | Path | Iterable[str | Path]) -> pl.LazyFrame:
@@ -144,13 +242,21 @@ def estimate_rx_bias(
         case _:
             raise ValueError(f"Unknown bias correction method: {method}")
 
-    lf = df.lazy()
+    lf = df.lazy().drop("rx_bias", strict=False)
+    # Diagnostic rows stay in the result, but cannot contribute to calibration.
+    bias_lf = lf.filter(
+        pl.all_horizontal(
+            pl.col("stec", "tx_bias", "mf", "ipp_lat", "ipp_lon", "rx_lat").is_finite()
+        )
+        & (pl.col("mf") > 0)
+        & pl.col("time").is_not_null()
+        & pl.col("C1_code").is_not_null()
+        & pl.col("C2_code").is_not_null()
+    )
     if downsample:
-        bias_lf = lf.group_by_dynamic(
+        bias_lf = bias_lf.group_by_dynamic(
             "time", every="30s", group_by=["station", "prn"]
         ).agg(pl.all().first())
-    else:
-        bias_lf = lf
 
     bias_lf = bias_lf.with_columns(
         pl.col("time").dt.date().alias("date"),
@@ -193,6 +299,7 @@ def _mstd_rx_bias(s: pl.Series) -> float:
             .dt.total_hours(fractional=True)
         )
         .filter((pl.col("lt") >= 18) | (pl.col("lt") <= 6))
+        .filter(pl.len().over("time") >= 2)
     )
     if df.height < 10:
         return np.nan
@@ -202,14 +309,23 @@ def _mstd_rx_bias(s: pl.Series) -> float:
             (pl.col("stec").sub(pl.col("tx_bias") + bias) / pl.col("mf")).alias("vtec")
         ).with_columns(pl.col("vtec").std().over("time").mean().alias("mean_std"))
 
-        return corrected.get_column("mean_std").item(0)
+        value = corrected.get_column("mean_std").item(0)
+        return float(value) if value is not None and np.isfinite(value) else np.inf
 
+    if not np.isfinite(mean_std(0.0)):
+        return np.nan
     result = minimize_scalar(mean_std, bounds=(-500, 500), method="bounded")
-    return result.x
+    return (
+        float(result.x)
+        if result.success and np.isfinite(result.x) and np.isfinite(result.fun)
+        else np.nan
+    )
 
 
 def _lsq_rx_bias(s: pl.Series) -> float:
     df = s.struct.unnest()
+    if df.is_empty():
+        return np.nan
     A = (
         df.with_columns(
             (pl.col("time") - pl.col("time").dt.truncate("1d"))
@@ -254,5 +370,12 @@ def _lsq_rx_bias(s: pl.Series) -> float:
         .fill_null(np.nan)
         .to_numpy()
     )
-    result = lsq_linear(A, b)
-    return result.x[0]
+    if not np.isfinite(A).all() or not np.isfinite(b).all():
+        return np.nan
+    try:
+        result = lsq_linear(A, b)
+    except np.linalg.LinAlgError:
+        return np.nan
+    return (
+        float(result.x[0]) if result.success and np.isfinite(result.x).all() else np.nan
+    )
