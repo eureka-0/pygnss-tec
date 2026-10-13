@@ -9,7 +9,7 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 - **Main goal:** resolve R01–R04 and make LLI output optional without weakening the RINEX-to-TEC QC path (T027).
 - **Underway:** no task is currently in progress.
 - **Confirmed scope:** skip special events with blank epoch fields (R03); expose all selected LLI columns only with `include_lli=True`, defaulting to `False` (T027). RINEX-to-TEC explicitly enables LLI.
-- **Open decisions:** R04 needs timestamped event/reset classification. R05 must quantify small-slip sensitivity before threshold claims or changes.
+- **Open decisions:** R04 needs timestamped event/reset classification. R05 will evaluate rolling GF/MW detection, its TEC accuracy and runtime tradeoff, and small-slip sensitivity. T005 will explore high-performance kernels; the default remains basic QC pending validation and review.
 - **Next:** R01, then R02 when authorized; R03 and T027 also have defined scopes and can proceed independently. T001's benchmark design and T024's compatibility/coverage inventory can also be planned independently.
 
 ## Milestones
@@ -35,7 +35,7 @@ These tables are the authority for active task priority, status and dependencies
 | R02 | Prefer usable signal pairs before applying priorities | P2 | ready | — | [Scope & acceptance](#r02-prefer-usable-signal-pairs-before-applying-priorities) |
 | R03 | Skip special events with blank epoch fields | P2 | ready | — | [Plan](docs/tasks/R03.md) |
 | R04 | Distinguish metadata events from ambiguity resets | P2 | backlog | — | [Plan](docs/tasks/R04.md) |
-| R05 | Quantify unflagged small-slip sensitivity | P1 | backlog | — | [Plan](docs/tasks/R05.md) |
+| R05 | Evaluate GF/MW detection and small-slip sensitivity | P1 | backlog | — | [Plan & measured impact](docs/tasks/R05.md) |
 | T006 | Stabilize and accelerate receiver-bias estimation | P1 | backlog | — | [Plan](docs/tasks/T006.md) |
 | T007 | Make SNR filtering and leveling robust | P1 | backlog | — | [Plan](docs/tasks/T007.md) |
 | T008 | Separate geometric IPPs from mapping models | P1 | backlog | — | [Plan](docs/tasks/T008.md) |
@@ -50,7 +50,7 @@ These tables are the authority for active task priority, status and dependencies
 | T002 | Push required observation columns into the reader | P1 | backlog | — | [Plan](docs/tasks/T002.md) |
 | T003 | Reuse navigation and unique epoch/SV geometry | P1 | backlog | — | [Plan](docs/tasks/T003.md) |
 | T004 | Introduce genuinely bounded input batches | P1 | backlog | — | [Plan](docs/tasks/T004.md) |
-| T005 | Move stateful arc kernels out of Python hot loops | P1 | backlog | — | [Plan](docs/tasks/T005.md) |
+| T005 | Explore high-performance arc and GF/MW kernels | P1 | backlog | — | [Plan](docs/tasks/T005.md) |
 | T010 | Bound parallelism and eliminate demonstrated rescans | P1 | backlog | — | [Plan](docs/tasks/T010.md) |
 | T023 | Extract focused modules behind compatible entry points | P3 | backlog | — | [Plan](docs/tasks/T023.md) |
 

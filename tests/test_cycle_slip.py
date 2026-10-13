@@ -17,7 +17,7 @@ def test_rapid_ionosphere_is_preserved(cadence):
     np.testing.assert_allclose(result["stec_p_raw"], tec, atol=1e-6, rtol=0)
     np.testing.assert_allclose(result["stec"], tec, atol=1e-6, rtol=0)
     assert result["arc_id"].n_unique() == 1
-    assert "gf_change_mw_stable" in result["qc_reason"].item(10)
+    assert result["qc_reason"].item(10) == "ok"
 
 
 @pytest.mark.parametrize("slips", [[1], [2, 4, 7], [10]])
@@ -28,14 +28,28 @@ def test_early_simultaneous_and_repeated_slips_split_without_rewriting(slips, bo
     for index in slips:
         jump[index:] += 5
     obs = obs.with_columns(pl.Series("L1C", obs["L1C"].to_numpy() + jump))
+    lock_flags = [int(index in slips) for index in range(20)]
+    obs = obs.with_columns(pl.Series("L1C_lli", lock_flags, dtype=pl.UInt8))
     if both:
         obs = obs.with_columns(pl.Series("L2W", obs["L2W"].to_numpy() + jump))
+        obs = obs.with_columns(pl.Series("L2W_lli", lock_flags, dtype=pl.UInt8))
     result = calculate(h, obs)
     assert result["arc_id"].n_unique() == len(slips) + 1
     expected_phase = (obs["L1C"] / F1 - obs["L2W"] / F2) * C * K
     np.testing.assert_allclose(result["stec_p_raw"], expected_phase, rtol=0, atol=1e-7)
     np.testing.assert_array_equal(result["stec_p_raw"], result["stec_p"])
     np.testing.assert_allclose(result["stec"], 30.0, atol=1e-6, rtol=0)
+
+
+def test_unflagged_phase_jump_is_preserved_without_heuristic_segmentation():
+    header, obs = physical_observations(np.full(20, 30.0))
+    jump = np.r_[np.zeros(10), np.full(10, 5.0)]
+    obs = obs.with_columns(pl.Series("L1C", obs["L1C"].to_numpy() + jump))
+    result = calculate(header, obs)
+    assert result["arc_id"].n_unique() == 1
+    assert result["qc_reason"].unique().to_list() == ["ok"]
+    expected = (obs["L1C"] / F1 - obs["L2W"] / F2) * C * K
+    np.testing.assert_allclose(result["stec_p_raw"], expected, rtol=0, atol=1e-7)
 
 
 def test_flags_and_rejection_policy():

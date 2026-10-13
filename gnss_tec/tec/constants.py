@@ -34,6 +34,18 @@ SIGNAL_FREQ: dict[str, dict[str, float]] = {
 }
 """Signal frequencies for supported constellations and signals in Hz."""
 
+CODE_FREQUENCIES = {
+    "C_1": SIGNAL_FREQ["C"]["B1"],
+    "C_2": SIGNAL_FREQ["C"]["B1-2"],
+    "C_5": SIGNAL_FREQ["C"]["B2a"],
+    "C_6": SIGNAL_FREQ["C"]["B3"],
+    "C_7": SIGNAL_FREQ["C"]["B2b"],
+    "C_8": SIGNAL_FREQ["C"]["B2"],
+    "G_1": SIGNAL_FREQ["G"]["L1"],
+    "G_2": SIGNAL_FREQ["G"]["L2"],
+    "G_5": SIGNAL_FREQ["G"]["L5"],
+}
+
 DEFAULT_C1_CODES: dict[str, dict[str, list[str]]] = {
     "2": {"G": ["C1"]},
     "3": {
@@ -259,14 +271,16 @@ class TECConfig:
 
 @dataclass(frozen=True)
 class SamplingConfig:
+    """Legacy sampling settings; basic QC uses cadence, not GF/MW tuning."""
+
     arc_interval: pl.Expr
     """Minimum time interval for arc segmentation (pl.duration)."""
 
     slip_tec_threshold: float
-    """TECU threshold to detect cycle slips."""
+    """Legacy GF/MW threshold, unused by default basic QC."""
 
     slip_correction_window: int
-    """Prior sample window for robust slip evidence (legacy field name)."""
+    """Legacy GF/MW window, unused by default basic QC."""
 
 
 def get_sampling_config(sampling_interval: float) -> SamplingConfig:

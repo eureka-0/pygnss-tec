@@ -1,5 +1,7 @@
 """Private receiver metadata and navigation preparation for TEC calculations."""
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 from pathlib import Path
 

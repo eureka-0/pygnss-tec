@@ -24,3 +24,10 @@ def _read_obs(
 def _satellite_positions(
     nav_fn: list[str], times: list[int], prns: list[str]
 ) -> RecordBatch: ...
+def _select_observations(
+    input: RecordBatch,
+    pairs: list[tuple[str, str, str, int, float, float]],
+    bias: RecordBatch | None,
+    receiver: bool,
+) -> RecordBatch: ...
+def _basic_arcs(input: RecordBatch, cadence: float | None) -> RecordBatch: ...

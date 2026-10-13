@@ -1,4 +1,4 @@
-"""Select complete signal pairs and match external code-bias validity intervals."""
+"""Select complete signal pairs and attach valid code biases without candidate tables."""
 
 from __future__ import annotations
 
@@ -8,65 +8,10 @@ from typing import Literal
 
 import polars as pl
 
+from .._core import _select_observations
+from ._arrow import record_batch
 from .bias import prepare_code_bias
-from .constants import TECConfig
-
-
-def _match_bias(lf: pl.LazyFrame, bias: pl.LazyFrame, kind: str) -> pl.LazyFrame:
-    receiver = kind == "rx_bias"
-    keys = ["_obs1", "_obs2", "constellation" if receiver else "prn"]
-    if receiver:
-        keys.append("station")
-    observation_schema = lf.collect_schema()
-    time_dtype = observation_schema["time"]
-    if not isinstance(time_dtype, pl.Datetime) or time_dtype.time_zone is not None:
-        raise ValueError("Bias matching requires timezone-naive GPS observation times.")
-    product = bias.filter(
-        pl.col("station").is_not_null() if receiver else pl.col("station").is_null()
-    )
-    product = product.select(
-        *(
-            [pl.col("station"), pl.col("prn").alias("constellation")]
-            if receiver
-            else [pl.col("prn")]
-        ),
-        pl.col("obs1").alias("_obs1"),
-        pl.col("obs2").alias("_obs2"),
-        pl.col("bias_start")
-        .cast(pl.Datetime(time_dtype.time_unit))
-        .alias(kind + "_start"),
-        pl.col("bias_end").cast(pl.Datetime(time_dtype.time_unit)).alias(kind + "_end"),
-        pl.col("estimated_value").alias(kind),
-    ).with_columns(pl.col(key).cast(observation_schema[key]) for key in keys)
-    lf = lf.sort("time").join_asof(
-        product.sort(kind + "_start"),
-        left_on="time",
-        right_on=kind + "_start",
-        by=keys,
-        strategy="backward",
-        check_sortedness=False,
-    )
-    covered = (pl.col("time") < pl.col(kind + "_end")).fill_null(False)
-    return lf.with_columns(
-        pl.when(covered)
-        .then(
-            pl.when(
-                pl.col("C1_code").cast(pl.String) < pl.col("C2_code").cast(pl.String)
-            )
-            .then(-pl.col(kind))
-            .otherwise(pl.col(kind))
-        )
-        .otherwise(None)
-        .alias(kind),
-        pl.when(covered)
-        .then(pl.col(kind + "_start"))
-        .otherwise(None)
-        .alias(kind + "_start"),
-        pl.when(covered)
-        .then(pl.col(kind + "_end"))
-        .otherwise(None)
-        .alias(kind + "_end"),
-    )
+from .constants import CODE_FREQUENCIES, TECConfig
 
 
 def coalesce_observations(
@@ -75,11 +20,10 @@ def coalesce_observations(
     config: TECConfig,
     version: Literal["2", "3"],
 ) -> pl.LazyFrame:
-    """Prefer complete finite pairs, bias coverage, joint daily coverage, then priority.
+    """Prefer complete pairs, bias coverage, daily coverage, then configured priority.
 
-    Configured priority remains 2*C1_priority + C2_priority; lexical code names
-    resolve ties. Per-epoch fallback preserves usable observations and the
-    selected code names allow the ambiguity segmenter to identify every switch.
+    Rust evaluates candidates in place and preserves lexical ties and per-epoch
+    fallback. Materialize once so geometry and observation preparation are shared.
     """
     schema = lf.collect_schema()
     meta = [
@@ -87,161 +31,127 @@ def coalesce_observations(
         for name in schema
         if not re.match(r"^[A-Z]\d[A-Z]?(?:_lli|_half_cycle_valid)?$", name)
     ]
-
-    def optional(name: str, dtype: pl.DataType | type[pl.DataType]) -> pl.Expr:
-        return pl.col(name).cast(dtype) if name in schema else pl.lit(None, dtype=dtype)
-
-    candidates = []
-    represented = set()
-    for constellation in config.constellations:
+    pairs = [
+        (
+            constellation,
+            first,
+            second,
+            2 * i + j,
+            CODE_FREQUENCIES.get(constellation + "_" + first[1], float("nan")),
+            CODE_FREQUENCIES.get(constellation + "_" + second[1], float("nan")),
+        )
+        for constellation in config.constellations
         for i, first in enumerate(
             config.c1_codes.get(version, {}).get(constellation, [])
-        ):
-            for j, second in enumerate(
-                config.c2_codes.get(version, {}).get(constellation, [])
-            ):
-                if any(
-                    code not in schema
-                    for code in (first, second, "L" + first[1:], "L" + second[1:])
-                ):
-                    continue
-                candidates.append(
-                    lf.filter(
-                        pl.col("prn").cast(pl.String).str.starts_with(constellation)
-                    ).select(
-                        *meta,
-                        pl.lit(first).cast(pl.Categorical).alias("C1_code"),
-                        pl.lit(second).cast(pl.Categorical).alias("C2_code"),
-                        pl.col(first).cast(pl.Float64).alias("C1_val"),
-                        pl.col(second).cast(pl.Float64).alias("C2_val"),
-                        pl.col("L" + first[1:]).cast(pl.Float64).alias("L1_val"),
-                        pl.col("L" + second[1:]).cast(pl.Float64).alias("L2_val"),
-                        optional("S" + first[1:], pl.Float64).alias("S1"),
-                        optional("S" + second[1:], pl.Float64).alias("S2"),
-                        optional("L" + first[1:] + "_lli", pl.UInt8).alias("L1_lli"),
-                        optional("L" + second[1:] + "_lli", pl.UInt8).alias("L2_lli"),
-                        pl.lit(2 * i + j).alias("_priority"),
-                    )
-                )
-                represented.add(constellation)
-    # A constellation with no complete candidate columns still contributes
-    # diagnostic rows, even when another constellation has usable signals.
-    missing = lf.filter(
-        ~pl.col("prn").cast(pl.String).str.slice(0, 1).is_in(sorted(represented))
-    )
-    candidates.append(
-        missing.select(*meta).with_columns(
-            *[
-                pl.lit(None, dtype=pl.Categorical).alias(n)
-                for n in ("C1_code", "C2_code")
-            ],
-            *[
-                pl.lit(None, dtype=pl.Float64).alias(n)
-                for n in ("C1_val", "C2_val", "L1_val", "L2_val", "S1", "S2")
-            ],
-            *[pl.lit(None, dtype=pl.UInt8).alias(n) for n in ("L1_lli", "L2_lli")],
-            pl.lit(0).alias("_priority"),
         )
+        for j, second in enumerate(
+            config.c2_codes.get(version, {}).get(constellation, [])
+        )
+        if all(
+            code in schema
+            for code in (first, second, "L" + first[1:], "L" + second[1:])
+        )
+    ]
+    fields = {
+        code
+        for _, first, second, *_ in pairs
+        for code in (
+            first,
+            second,
+            "L" + first[1:],
+            "L" + second[1:],
+            "S" + first[1:],
+            "S" + second[1:],
+            "L" + first[1:] + "_lli",
+            "L" + second[1:] + "_lli",
+        )
+        if code in schema
+    }
+    frame = lf.collect()
+    data = frame.select(
+        pl.col("time").dt.epoch("ns"),
+        pl.col("station", "prn").cast(pl.String),
+        *[
+            pl.col(code).cast(pl.UInt8 if code.endswith("_lli") else pl.Float64)
+            for code in sorted(fields)
+        ],
     )
-    selected = pl.concat(candidates)
-    selected = selected.with_columns(
-        pl.col("prn")
-        .cast(pl.String)
-        .str.slice(0, 1)
-        .cast(pl.Categorical)
-        .alias("constellation"),
-        pl.col("time").dt.date().alias("date"),
-        pl.all_horizontal(pl.col("C1_val", "C2_val", "L1_val", "L2_val").is_finite())
-        .fill_null(False)
-        .alias("_complete"),
-    ).with_columns(
-        pl.col("_complete")
-        .mean()
-        .over("date", "station", "prn", "C1_code", "C2_code")
-        .alias("_coverage"),
-        pl.when(pl.col("C1_code").cast(pl.String) < pl.col("C2_code").cast(pl.String))
-        .then(pl.col("C1_code"))
-        .otherwise(pl.col("C2_code"))
-        .alias("_obs1"),
-        pl.when(pl.col("C1_code").cast(pl.String) < pl.col("C2_code").cast(pl.String))
-        .then(pl.col("C2_code"))
-        .otherwise(pl.col("C1_code"))
-        .alias("_obs2"),
-    )
-    required = []
+    product = None
     if bias_lf is not None:
-        bias_lf = prepare_code_bias(bias_lf)
-        required.append("tx_bias")
-        selected = _match_bias(selected, bias_lf, "tx_bias")
-        if config.rx_bias == "external":
-            required.append("rx_bias")
-            selected = _match_bias(selected, bias_lf, "rx_bias")
-    selected = (
-        selected.with_columns(
-            pl.all_horizontal([pl.col(n).is_not_null() for n in required]).alias(
-                "_bias_available"
+        product = record_batch(
+            prepare_code_bias(bias_lf)
+            .select(
+                pl.col("station", "prn", "obs1", "obs2").cast(pl.String),
+                pl.col("bias_start", "bias_end").dt.epoch("ns"),
+                pl.col("estimated_value").cast(pl.Float64),
             )
-            if required
-            else pl.lit(True).alias("_bias_available")
-        )
-        .sort(
-            [
-                "_complete",
-                "_bias_available",
-                "_coverage",
-                "_priority",
-                "C1_code",
-                "C2_code",
-            ],
-            descending=[True, True, True, False, False, False],
-        )
-        .group_by("time", "station", "prn", maintain_order=True)
-        .agg(pl.all().first())
-    )
-
-    if required and config.missing_bias in {"warn", "error"}:
-        missing = (
-            selected.filter(~pl.col("_bias_available"))
-            .select(pl.len())
             .collect()
-            .item()
         )
+    output = pl.from_arrow(
+        _select_observations(
+            record_batch(data), pairs, product, config.rx_bias == "external"
+        )
+    )
+    assert isinstance(output, pl.DataFrame)
+    output = output.with_columns(pl.col("C1_code", "C2_code").cast(pl.Categorical))
+    intervals = [
+        name for name in output.columns if name.endswith(("_bias_start", "_bias_end"))
+    ]
+    output = output.with_columns(pl.col(intervals).cast(pl.Datetime("ns")))
+    selected = frame.select(meta).with_columns(output.get_columns()).lazy()
+
+    required = (
+        []
+        if bias_lf is None
+        else ["tx_bias"] + (["rx_bias"] if config.rx_bias == "external" else [])
+    )
+    if required and config.missing_bias in {"warn", "error"}:
+        missing = int((~output["_bias_available"]).sum())
         if missing:
-            message = f"{missing} observations are missing required bias columns: {', '.join(required)}."
+            message = (
+                f"{missing} observations are missing required bias columns: "
+                + ", ".join(required)
+                + "."
+            )
             if config.missing_bias == "error":
                 raise ValueError(message)
             warnings.warn(message, stacklevel=3)
     # SNR absence is assessed per receiver and selected pair, never across stations.
-    selected = selected.with_columns(
-        *[
-            (
-                pl.col(n).is_null().mean().over("station", "C1_code", "C2_code") > 0.5
-            ).alias(n + "_missing")
-            for n in ("S1", "S2")
-        ]
-    ).with_columns(
-        pl.all_horizontal(
-            [
-                (pl.col(n).is_finite() & (pl.col(n) >= config.min_snr))
-                | (pl.col(n).is_null() & pl.col(n + "_missing"))
-                for n in ("S1", "S2")
+    return (
+        selected.with_columns(
+            *[
+                (
+                    pl.col(name).is_null().mean().over("station", "C1_code", "C2_code")
+                    > 0.5
+                ).alias(name + "_missing")
+                for name in ("S1", "S2")
             ]
         )
-        .fill_null(False)
-        .alias("_snr_valid"),
-        (
-            ~pl.col("_bias_available")
-            & pl.lit(config.missing_bias != "keep_uncorrected")
-        ).alias("_bias_rejected"),
-    )
-    return selected.drop(
-        "_obs1",
-        "_obs2",
-        "_priority",
-        "_coverage",
-        "_complete",
-        "date",
-        "constellation",
-        "S1_missing",
-        "S2_missing",
+        .with_columns(
+            pl.all_horizontal(
+                [
+                    (pl.col(name).is_finite() & (pl.col(name) >= config.min_snr))
+                    | (pl.col(name).is_null() & pl.col(name + "_missing"))
+                    for name in ("S1", "S2")
+                ]
+            )
+            .fill_null(False)
+            .alias("_snr_valid"),
+            (
+                ~pl.col("_bias_available")
+                & pl.lit(config.missing_bias != "keep_uncorrected")
+            ).alias("_bias_rejected"),
+        )
+        .drop(
+            "_obs1",
+            "_obs2",
+            "_priority",
+            "_coverage",
+            "_complete",
+            "date",
+            "constellation",
+            "S1_missing",
+            "S2_missing",
+            strict=False,
+        )
     )

@@ -134,16 +134,16 @@ def prepare_code_bias(lf: pl.LazyFrame) -> pl.LazyFrame:
         raise ValueError(
             f"Bias metadata is missing required fields: {', '.join(sorted(missing))}."
         )
-    df = lf.collect()
-    if (
-        "estimated_slope" in df.columns
-        and df.filter(
-            pl.col("estimated_slope").cast(pl.Float64).fill_null(0) != 0
-        ).height
-    ):
-        raise ValueError(
-            "Unsupported bias semantics: time-varying bias slopes are not supported."
-        )
+    schema = lf.collect_schema()
+    for name in ("bias_start", "bias_end"):
+        dtype = schema[name]
+        if not isinstance(dtype, pl.Datetime) or dtype.time_zone is not None:
+            raise ValueError("Bias validity times must be timezone-naive GPS Datetime.")
+    slope = (
+        pl.col("estimated_slope").cast(pl.Float64).fill_null(0) != 0
+        if "estimated_slope" in schema
+        else pl.lit(False)
+    )
     supported = (
         (pl.col("bias") == "DSB")
         & (pl.col("unit") == "ns")
@@ -154,17 +154,12 @@ def prepare_code_bias(lf: pl.LazyFrame) -> pl.LazyFrame:
         & pl.col("estimated_value").is_finite()
         & (pl.col("bias_end") > pl.col("bias_start"))
     )
-    if df.filter(~supported.fill_null(False)).height:
-        raise ValueError(
-            "Unsupported bias semantics: require code DSB, ns, GPS G, finite values and valid start/end intervals."
-        )
-    for name in ("bias_start", "bias_end"):
-        dtype = df.schema[name]
-        if not isinstance(dtype, pl.Datetime) or dtype.time_zone is not None:
-            raise ValueError("Bias validity times must be timezone-naive GPS Datetime.")
     reverse = pl.col("obs1").cast(pl.String) > pl.col("obs2").cast(pl.String)
+    keys = ["station", "prn", "obs1", "obs2"]
     df = (
-        df.with_columns(
+        lf.with_columns(
+            (~supported.fill_null(False)).alias("_unsupported_bias"),
+            slope.alias("_unsupported_slope"),
             pl.when(reverse)
             .then(pl.col("obs2"))
             .otherwise(pl.col("obs1"))
@@ -180,20 +175,30 @@ def prepare_code_bias(lf: pl.LazyFrame) -> pl.LazyFrame:
         )
         .drop("obs1", "obs2")
         .rename({"_obs1": "obs1", "_obs2": "obs2"})
-    )
-    keys = ["station", "prn", "obs1", "obs2"]
-    overlap = (
-        df.sort(*keys, "bias_start")
         .with_columns(
-            pl.col("bias_end").cum_max().shift(1).over(keys).alias("_previous_end")
+            (
+                pl.col("bias_start")
+                < pl.col("bias_end")
+                .cum_max()
+                .shift(1)
+                .over(keys, order_by="bias_start")
+            ).alias("_overlap")
         )
-        .filter(pl.col("bias_start") < pl.col("_previous_end"))
+        .collect()
     )
-    if overlap.height:
+    if df["_unsupported_slope"].any():
+        raise ValueError(
+            "Unsupported bias semantics: time-varying bias slopes are not supported."
+        )
+    if df["_unsupported_bias"].any():
+        raise ValueError(
+            "Unsupported bias semantics: require code DSB, ns, GPS G, finite values and valid start/end intervals."
+        )
+    if df["_overlap"].any():
         raise ValueError(
             "Overlapping bias validity intervals for the same station/PRN/signal pair."
         )
-    return df.lazy()
+    return df.drop("_unsupported_slope", "_unsupported_bias", "_overlap").lazy()
 
 
 def read_bias(fn: str | Path | Iterable[str | Path]) -> pl.LazyFrame:

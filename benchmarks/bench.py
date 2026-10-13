@@ -1,4 +1,11 @@
-"""Compare streaming and in-memory RINEX/TEC execution in one benchmark run."""
+"""Compare streaming and in-memory RINEX/TEC execution in one benchmark run.
+
+Read decodes raw observations; read-and-TEC includes navigation and geometry;
+TEC-only uses resident observations and geometry. Sizes describe on-disk observation
+files, excluding navigation and bias files. RINEX 2 uses no DCB correction because
+the supplied CAS files lack matching C1/C2 biases; RINEX 3 uses external CAS DCBs.
+Engines run serially in alternating order, with result comparisons outside timing.
+"""
 
 import argparse
 import hashlib
@@ -84,6 +91,45 @@ def measure(
         "max_s": max(samples),
         "samples_s": samples,
     }, df
+
+
+def write_markdown(
+    output: Path,
+    metadata: dict[str, object],
+    runs: dict[Engine, list[dict[str, object]]],
+) -> None:
+    packages = metadata["packages"]
+    assert isinstance(packages, dict)
+    lines = [
+        "# Benchmark Results",
+        "",
+        "| Environment | Value |",
+        "| --- | --- |",
+        f"| Measured (UTC) | {metadata['timestamp_utc']} |",
+        f"| Platform | {metadata['platform']}; {metadata['cpu_cores']} logical cores |",
+        f"| Python / packages | Python {metadata['python']}; "
+        + "; ".join(f"{name} {value}" for name, value in sorted(packages.items()))
+        + " |",
+        f"| Polars threads / warm-up / repeats | {metadata['polars_threads']} / {metadata['warmup']} / {metadata['repeats']} |",
+        f"| Native SHA-256 | {metadata['native_core_sha256']} |",
+        "",
+    ]
+    for engine in ENGINES:
+        lines.extend(
+            [
+                f"## {engine}",
+                "",
+                "| Task | Rows | Median (s) | Min–max (s) |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for run in runs[engine]:
+            lines.append(
+                f"| {run['name']} ({run['size_mib']:.2f} MiB) | {run['rows']} | {run['median_s']:.4f} | {run['min_s']:.4f}–{run['max_s']:.4f} |"
+            )
+        lines.append("")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(lines).rstrip() + "\n")
 
 
 def cases(
@@ -230,37 +276,7 @@ def main() -> None:
             del reference, operation
             if stage == "TEC-only":
                 del cached_df, header, lf
-    packages = metadata["packages"]
-    lines = [
-        "# Benchmark Results",
-        "",
-        f"Python {metadata['python']}; {metadata['platform']}; {metadata['cpu_cores']} logical CPU cores.",
-        f"Dependencies: {json.dumps(packages, sort_keys=True)}.",
-        f"Polars threads: {metadata['polars_threads']}; warm-up runs per engine/task: {args.warmup}; measured runs per engine/task: {args.repeats}.",
-        f"Measured at {metadata['timestamp_utc']}; native extension SHA-256: {metadata['native_core_sha256']}.",
-        "",
-        "Read decodes raw observations. Read-and-TEC also parses navigation and calculates satellite positions and azimuth/elevation. TEC-only starts with observations and geometry already in memory.",
-        "RINEX 2 uses no DCB correction: the supplied CAS files do not contain matching C1/C2 biases. RINEX 3 uses external CAS DCBs. Empty outputs fail the benchmark.",
-        "Task sizes are the total on-disk observation file sizes, excluding navigation and bias files. For TEC-only, they refer to the source files rather than DataFrame memory usage.",
-        "Both engines run serially with alternating measurement order. Each task's final results are compared outside timing: identities, dtypes, null masks and numerical values (rel_tol=0, abs_tol=1e-8).",
-        "",
-    ]
-    for engine in ENGINES:
-        lines.extend(
-            [
-                f"## {engine}",
-                "",
-                "| Task | Rows | Median (s) | Min–max (s) |",
-                "| --- | ---: | ---: | ---: |",
-            ]
-        )
-        for run in runs[engine]:
-            lines.append(
-                f"| {run['name']} ({run['size_mib']:.2f} MiB) | {run['rows']} | {run['median_s']:.4f} | {run['min_s']:.4f}–{run['max_s']:.4f} |"
-            )
-        lines.append("")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("\n".join(lines) + "\n")
+    write_markdown(args.output, metadata, runs)
     if args.json_output is not None:
         args.json_output.parent.mkdir(parents=True, exist_ok=True)
         args.json_output.write_text(

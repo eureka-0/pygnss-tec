@@ -219,7 +219,7 @@ print(tec_lf.collect(engine="in-memory"))
 # │ 2024-01-10  ┆ CIBG    ┆ G23 ┆ 0          ┆ … ┆ external_co ┆ 68.029699  ┆ 27.375494  ┆ 23.37039  │
 # │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
 # │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
-# │ 2024-01-10  ┆ CIBG    ┆ G25 ┆ 0          ┆ … ┆ external_co ┆ 69.734993  ┆ 36.552019  ┆ 27.215423 │
+# │ 2024-01-10  ┆ CIBG    ┆ G25 ┆ 0          ┆ … ┆ external_co ┆ 69.761499  ┆ 36.578524  ┆ 27.235158 │
 # │ 23:59:12    ┆         ┆     ┆            ┆   ┆ de_correcte ┆            ┆            ┆           │
 # │ UTC         ┆         ┆     ┆            ┆   ┆ d           ┆            ┆            ┆           │
 # │ 2024-01-10  ┆ CIBG    ┆ G28 ┆ 0          ┆ … ┆ external_co ┆ 67.675466  ┆ 25.564254  ┆ 20.288658 │
@@ -280,7 +280,7 @@ tec_lf = gt.calc_tec_from_parquet(
 
 #### Execution engines
 
-For small batches that fit comfortably in memory, use `in-memory`. Our [benchmarks](benchmarks/benchmark.md) show faster TEC calculation from resident observations with this engine. Streaming's batch processing and coordination add overhead to these grouped calculations; end-to-end differences are smaller because RINEX parsing accounts for most of the time.
+For data that fit comfortably in memory, use `in-memory`. Compare both engines for your workload; see the [benchmarks](benchmarks/benchmark.md).
 
 ```python
 tec_df = tec_lf.collect(engine="in-memory")
@@ -289,11 +289,11 @@ tec_df = tec_lf.collect(engine="in-memory")
 tec_df = tec_lf.collect(engine="streaming")
 ```
 
-For large datasets, especially those exceeding available memory, consider `streaming` with a scan-based source such as `calc_tec_from_parquet`. It can reduce intermediate memory use, but TEC still needs complete arcs and grouped calculations; memory use and speed depend on the query, and `collect` must hold the final DataFrame in memory.
+To select the engine for internal queries as well, wrap the calculation call in `pl.Config(engine_affinity="in-memory")`.
+
+Streaming can reduce some intermediate memory use, but RINEX reading and TEC calculation still require observation data in memory. RINEX files are fully loaded before their LazyFrame is returned. Choosing `streaming` cannot make an oversized raw RINEX input fit in memory; prepare a scan-based input or use batches that preserve complete arcs. Compare both engines for large workloads.
 
 If the TEC output is also too large to collect, write it with `tec_lf.sink_parquet("tec.parquet", engine="streaming")`.
-
-RINEX files are fully loaded before their LazyFrame is returned. Choosing `streaming` cannot make an oversized raw RINEX input fit in memory; prepare a scan-based input or use batches that preserve complete arcs. Compare both engines for large workloads.
 
 #### Configuration
 
@@ -338,26 +338,26 @@ The meaning of each parameter is as follows:
 - `ipp_height`: The assumed height of the ionospheric pierce point (IPP) in kilometers.
 - `min_elevation`: The minimum satellite elevation angle (in degrees) for observations to be considered in the TEC calculation.
 - `min_snr`: The minimum signal-to-noise ratio (in dB-Hz) for observations to be considered in the TEC calculation.
-- `c1_codes`: A dictionary of ordered preferences for the first frequency (C1), by RINEX version and constellation. Together with `c2_codes`, pairs are ranked by complete finite P1/L1/P2/L2 availability at the epoch, required bias coverage, joint daily coverage, then `2 * C1_index + C2_index` (indices start at zero); ties are resolved by code name. A missing phase partner causes fallback to a complete pair. Partial overrides are supported, e.g., `c1_codes={'3': {'C': [...]}}` changes only the BeiDou RINEX 3 preferences.
+- `c1_codes`: Ordered preferences for the first frequency, by RINEX version and constellation. Selection also considers available code/phase measurements and bias coverage. Partial overrides are supported, e.g., `c1_codes={'3': {'C': [...]}}` changes only the BeiDou RINEX 3 preferences.
 - `c2_codes`: A dictionary specifying the preferred observation codes for the second frequency (C2) for each RINEX version and constellation, similar to `c1_codes`.
 - `rx_bias`: Specifies how to handle receiver bias. It can be set to 'external' to use an external DCB file for correction, 'mstd' to use the minimum standard deviation method for estimation, 'lsq' to use least squares estimation, or `None` to skip receiver bias correction. Note that the receiver bias estimation is only applicable after the satellite bias has been corrected using an external DCB file (e.g., from IGS). If no external DCB file is provided, this parameter will be ignored. The 'mstd' and 'lsq' methods are for stations that are not included in the external DCB file.
 - `mapping_function`: The mapping function to use for converting slant TEC to vertical TEC. It can be set to 'slm' for the Single Layer Model or 'mslm' for the Modified Single Layer Model.
-- `retain_intermediate`: Names of intermediate columns to retain in the output DataFrame. `None` and a list of column names return only QC-accepted rows. `'all'` also retains rejected diagnostic rows, with null public TEC values and `qc_reason` explaining the rejection. `qc_valid` and `calibration_status` are always included. Explicitly requested TEC intermediates such as `azimuth`, `elevation`, `mf` and `stec_p_raw` remain available. Private preparation columns, satellite ECEF coordinates and receiver/event state helpers are always excluded, including with `'all'`.
+- `retain_intermediate`: Intermediate columns to keep, such as `azimuth`, `elevation`, `mf` or `stec_p_raw`. `None` and a list return only accepted rows. `'all'` also keeps rejected rows with null TEC values and a `qc_reason`. Internal preparation columns are excluded.
 - `missing_bias`: Specifies how to handle observations whose satellite or receiver bias cannot be matched from the provided DCB file. `'drop'` rejects them, `'warn'` also emits a warning, `'keep_uncorrected'` applies only the available corrections and marks the result `uncorrected_missing_bias`, and `'error'` fails immediately. Rejected rows remain inspectable with `retain_intermediate='all'`.
 
 When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware UTC datetimes for UTC time, and timezone-naive datetimes for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
 
 ### Observation quality and scientific conventions
 
-The reader exports `Datetime('ns')` epochs and floating-point sampling intervals in seconds. Header metadata records `epoch_resolution`, receiver identity and epoch events; Parquet round-trips preserve these fields. RINEX precision finer than nanoseconds and epochs outside the signed nanosecond range raise errors. Existing Parquet files with millisecond metadata remain readable.
+Observation times use nanosecond precision, and sampling intervals are in seconds. Parquet preserves the time scale and RINEX header metadata.
 
-Both wide and long observation layouts preserve the original LLI: `<signal>_lli` in wide format and `lli` in long format. `epoch_flag` retains the original epoch flag. TEC interprets half-cycle validity from LLI and rebuilds receiver/event state internally from header metadata, including when observation codes are filtered. Special events without observations remain in header metadata. See the [RINEX 3.05 format specification](https://files.igs.org/pub/data/format/rinex305.pdf).
+Lock indicators appear as `<signal>_lli` in wide format and `lli` in long format. `epoch_flag` records the RINEX epoch flag. Their definitions follow the [RINEX format specification](https://files.igs.org/pub/data/format/rinex305.pdf).
 
-TEC processing preserves the original phase-derived `stec_p_raw` (`stec_p` is the same raw series). LLI, half-cycle state, geometry-free (GF) innovations and robust Melbourne–Wübbena (MW) evidence delimit ambiguity arcs. Uncertain jumps split an arc; phase samples are never flattened. Signal-pair changes, receiver events or identity changes, rejected observations and reacquisition gaps also start new arcs. Continuous unchanged observations can share an arc across midnight. When the header has no sampling interval, cadence is inferred per station/satellite; incompatible sampling regimes require separate processing or a known header interval.
+TEC preserves the original carrier phase. Basic quality checks cover observation and geometry validity, SNR, elevation and recorded lock/epoch flags. Data gaps, signal changes and receiver events can start new arcs. Unflagged phase jumps are not automatically detected. Provide a known sampling interval when cadence cannot be inferred consistently.
 
-External bias correction currently accepts constant code DSB products in nanoseconds with explicit GPS `TIME_SYSTEM G` metadata. Unsupported kinds, units, time scales, nonzero slopes, invalid intervals and overlaps for the same station/PRN/pair raise errors. Validity intervals are half-open `[bias_start, bias_end)`, and reversing the DSB observation pair reverses its sign. The [Bias-SINEX 1.00 specification](https://files.igs.org/pub/data/format/sinex_bias_100.pdf) defines the retained product metadata.
+External correction supports constant code DSB products in nanoseconds and GPS time, as defined by [Bias-SINEX](https://files.igs.org/pub/data/format/sinex_bias_100.pdf). Bias intervals must be valid and non-overlapping.
 
-Known satellite and external receiver code biases are converted to TECU and removed from the code reference before phase leveling. `arc_id` identifies the physical ambiguity segment; `level_id` additionally separates bias validity intervals. Leveling uses finite, accepted samples with positive elevation weights. `stec` preserves the uncorrected STEC relationship, while `stec_dcb_corrected` and `vtec` use the corrected level without subtracting the same bias twice. Estimated receiver bias is subtracted after satellite-corrected leveling. Empty or failed estimation produces null TEC and `receiver_estimation_failed`.
+Bias corrections are applied before code-to-phase leveling. `stec` retains the uncorrected STEC relationship; `stec_dcb_corrected` and `vtec` include the available corrections. `arc_id` identifies an observation arc, while `level_id` also separates bias validity intervals. Failed receiver-bias estimation produces null TEC values.
 
 `calibration_status` records the correction actually available:
 
@@ -370,10 +370,16 @@ Known satellite and external receiver code biases are converted to TECU and remo
 | `satellite_code_corrected_receiver_mstd_estimated` / `satellite_code_corrected_receiver_lsq_estimated` | Satellite code bias was corrected and receiver bias was estimated successfully. |
 | `receiver_estimation_failed` | Receiver estimation had insufficient usable support or failed; public TEC values are null. |
 
-The `mstd` and `lsq` methods retain their estimation assumptions; identifiability and conditioning diagnostics are planned in [T006](docs/tasks/T006.md). See [ROADMAP.md](ROADMAP.md) for the active task index. No-bias results and explicitly retained missing-bias results are relative or partially corrected products.
-
-IPP longitude uses both atan2 quadrants and is normalized to `[-180, 180)` degrees. The private navigation preparation propagates GLONASS broadcast position, velocity and acceleration in the rotating PZ-90 frame with bounded RK4 steps, accepting epochs within ±900 seconds of the broadcast reference. Unsupported or expired geometry produces null angles; satellite coordinates and availability flags remain private. The dynamics follow the [GLONASS coordinate equations](https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation) and [RTKLIB broadcast propagation](https://github.com/tomojitakasu/RTKLIB/blob/master/src/ephemeris.c). GLONASS TEC remains a separate planned capability because FDMA frequencies and bias conventions need per-satellite support.
+Results without complete bias corrections are relative or partially corrected products. TEC currently supports GPS and BeiDou; additional constellations and advanced quality checks are tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Benchmarks
 
 See [benchmarks/benchmark.md](benchmarks/benchmark.md) for streaming and in-memory benchmark results.
+
+This file is generated by `benchmarks/bench.py`. Regenerate the tables, including the four two-day station cases, with:
+
+```bash
+uv run benchmarks/bench.py --multiday
+```
+
+`read` measures raw observation decoding, `read-and-TEC` includes navigation and geometry preparation, and `TEC-only` uses observations and geometry already in memory. File sizes refer to on-disk observation files. Detailed environment metadata and individual timing samples can be exported with `--json-output PATH`.

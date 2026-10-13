@@ -11,10 +11,10 @@ from numpy.typing import NDArray
 
 from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
 from .bias import estimate_rx_bias, read_bias
-from .constants import SIGNAL_FREQ, TECConfig, c, get_sampling_config
+from .constants import CODE_FREQUENCIES, TECConfig, c
 from .mapping_func import modified_single_layer_model, single_layer_model
 from .preparation import _prepare_observations
-from .quality import ARC_DTYPE, segment_arcs
+from .quality import add_basic_arcs
 from .signals import coalesce_observations as _coalesce_observations
 
 
@@ -53,22 +53,15 @@ def _leap_seconds_duration(header: RinexObsHeader) -> pl.Expr:
 
 
 def _map_frequencies(lf: pl.LazyFrame) -> pl.LazyFrame:
-    code_freq_map = {
-        "C_1": SIGNAL_FREQ["C"]["B1"],
-        "C_2": SIGNAL_FREQ["C"]["B1-2"],
-        "C_5": SIGNAL_FREQ["C"]["B2a"],
-        "C_6": SIGNAL_FREQ["C"]["B3"],
-        "C_7": SIGNAL_FREQ["C"]["B2b"],
-        "C_8": SIGNAL_FREQ["C"]["B2"],
-        "G_1": SIGNAL_FREQ["G"]["L1"],
-        "G_2": SIGNAL_FREQ["G"]["L2"],
-        "G_5": SIGNAL_FREQ["G"]["L5"],
-    }
+    if "_C1_freq" in lf.collect_schema():
+        return lf.with_columns(
+            pl.col("_C1_freq").alias("C1_freq"), pl.col("_C2_freq").alias("C2_freq")
+        ).drop("_C1_freq", "_C2_freq")
 
     def map_freq(col: str) -> pl.Expr:
         return pl.concat_str(
             pl.col("prn").cat.slice(0, 1), pl.lit("_"), pl.col(col).cat.slice(1, 1)
-        ).replace_strict(code_freq_map, default=None)
+        ).replace_strict(CODE_FREQUENCIES, default=None)
 
     return lf.with_columns(
         map_freq("C1_code").alias("C1_freq"), map_freq("C2_code").alias("C2_freq")
@@ -125,6 +118,12 @@ def calc_tec_from_df(
     """
     if config is None:
         config = TECConfig()
+    keep_all = config.retain_intermediate == "all"
+    retained = (
+        {config.retain_intermediate}
+        if isinstance(config.retain_intermediate, str)
+        else set(config.retain_intermediate or ())
+    )
     input_lf = df.lazy()
     _require_columns(input_lf, ["time", "station", "prn"], "calc_tec_from_df")
     input_schema = input_lf.collect_schema()
@@ -143,22 +142,16 @@ def calc_tec_from_df(
         input_lf = input_lf.with_columns(geometry_casts)
     time_kind = _infer_time_kind(input_lf)
     bounds = np.iinfo(np.int64)
-    out_of_range = (
+    out_of_range, invalid_time, duplicated = (
         input_lf.select(
-            ~pl.col("time")
-            .dt.epoch("us")
-            .is_between(bounds.min // 1000 + 1, bounds.max // 1000)
-        )
-        .collect()
-        .to_series()
-        .any()
-    )
-    if out_of_range:
-        raise ValueError("Observation epoch is outside the signed nanosecond range.")
-    input_lf = input_lf.with_columns(pl.col("time").dt.cast_time_unit("ns"))
-    invalid_time, duplicated = (
-        input_lf.select(
-            pl.col("time").is_null().any(),
+            (
+                ~pl.col("time")
+                .dt.epoch("us")
+                .is_between(bounds.min // 1000 + 1, bounds.max // 1000)
+            )
+            .any()
+            .alias("_out_of_range"),
+            pl.col("time").is_null().any().alias("_null_time"),
             pl.struct("time", "station", "prn")
             .is_duplicated()
             .any()
@@ -167,10 +160,13 @@ def calc_tec_from_df(
         .collect()
         .row(0)
     )
+    if out_of_range:
+        raise ValueError("Observation epoch is outside the signed nanosecond range.")
     if invalid_time or duplicated:
         raise ValueError(
             "Observation times must be finite and unique within each station/PRN."
         )
+    input_lf = input_lf.with_columns(pl.col("time").dt.cast_time_unit("ns"))
 
     lf = (
         input_lf.with_columns(pl.col("prn").cast(pl.Categorical))
@@ -224,7 +220,6 @@ def calc_tec_from_df(
         sampling_interval = interval_ns / 1e9
     if not np.isfinite(sampling_interval) or sampling_interval <= 0:
         raise ValueError("sampling_interval must be finite and positive.")
-    sampling_config = get_sampling_config(sampling_interval)
 
     lf = lf.with_columns(_leap_seconds_duration(header).alias("_leap_seconds"))
     leap_seconds = pl.col("_leap_seconds")
@@ -277,7 +272,6 @@ def calc_tec_from_df(
     available = set(lf.collect_schema().names())
     defaults = [pl.lit(0, dtype=pl.UInt8).alias("epoch_flag")]
     lf = lf.with_columns([e for e in defaults if e.meta.output_name() not in available])
-    receiver_state = pl.col("_receiver_state")
     lf = lf.sort("time", "station", "prn").with_columns(
         (pl.col("C2_val") - pl.col("C1_val")).mul(coeff).alias("stec_g"),
         (pl.col("L1_val") / f1 - pl.col("L2_val") / f2)
@@ -342,36 +336,15 @@ def calc_tec_from_df(
         .with_columns(
             (pl.col("_numeric_valid") & pl.col("_half_cycle_valid")).alias("qc_valid")
         )
-        .with_columns(
-            pl.struct(
-                pl.col("time").dt.epoch("ns"),
-                "stec_p_raw",
-                "stec_g",
-                "mw",
-                "_numeric_valid",
-                "L1_lli",
-                "L2_lli",
-                "epoch_flag",
-                receiver_state.alias("receiver_state"),
-                "C1_code",
-                "C2_code",
-            )
-            .map_batches(
-                lambda samples: segment_arcs(
-                    samples,
-                    sampling_interval if header.sampling_interval is not None else None,
-                    sampling_config.slip_tec_threshold,
-                    sampling_config.slip_correction_window,
-                ),
-                return_dtype=ARC_DTYPE,
-                is_elementwise=False,
-            )
-            .over("station", "prn")
-            .alias("_arc"),
-            pl.col("stec_p_raw").alias("stec_p"),
-        )
-        .unnest("_arc")
+        .with_columns(pl.col("stec_p_raw").alias("stec_p"))
     )
+    lf = add_basic_arcs(
+        lf, sampling_interval if header.sampling_interval is not None else None
+    )
+    if not keep_all:
+        # Rejected rows have already contributed to arc boundaries. They carry
+        # no leveling weight and need not traverse the remaining TEC expressions.
+        lf = lf.filter(pl.col("qc_valid"))
     lf = lf.with_columns(
         pl.concat_str(
             pl.col("qc_reason"),
@@ -415,21 +388,21 @@ def calc_tec_from_df(
             )
             .otherwise(pl.lit("uncorrected_missing_bias"))
             .alias("calibration_status"),
-            pl.concat_str(
-                *[
-                    pl.col(n).cast(pl.String).fill_null("missing")
-                    for n in interval_cols
-                ],
-                pl.col("_bias_available").cast(pl.String),
-                separator="|",
-            ).alias("level_id"),
+            pl.struct(*interval_cols, "_bias_available").alias("_level_key"),
             code_bias.alias("_code_bias"),
         )
     else:
         lf = lf.with_columns(
             pl.lit("uncorrected_no_bias_product").alias("calibration_status"),
-            pl.lit("no_bias_product").alias("level_id"),
+            pl.lit(False).alias("_level_key"),
             pl.lit(0.0).alias("_code_bias"),
+        )
+    if keep_all or "level_id" in retained:
+        # Reserve the existing public column position; format interval IDs later.
+        lf = lf.with_columns(
+            pl.lit(
+                None if bias_fn is not None else "no_bias_product", dtype=pl.String
+            ).alias("level_id")
         )
 
     # Calibrate the code reference BEFORE leveling. Physical arcs are independent
@@ -470,7 +443,7 @@ def calc_tec_from_df(
         )
         .with_columns(
             (pl.col("_weighted_offset").sum() / pl.col("_valid_weight").sum())
-            .over("station", "prn", "arc_id", "level_id")
+            .over("station", "prn", "arc_id", "_level_key")
             .fill_nan(None)
             .alias("offset")
         )
@@ -485,6 +458,35 @@ def calc_tec_from_df(
             (pl.col("_leveled") + pl.col("_code_bias")).alias("stec")
         )
     )
+    if bias_fn is not None and (keep_all or "level_id" in retained):
+        # Format each distinct public interval ID once, preserving its string form.
+        interval_keys = [*interval_cols, "_bias_available"]
+        levels = (
+            lf.select(*interval_keys)
+            .unique()
+            .with_columns(
+                pl.concat_str(
+                    *[
+                        pl.col(name).cast(pl.String).fill_null("missing")
+                        for name in interval_cols
+                    ],
+                    pl.col("_bias_available").cast(pl.String),
+                    separator="|",
+                ).alias("_formatted_level_id")
+            )
+        )
+        lf = (
+            lf.join(
+                levels,
+                on=interval_keys,
+                how="left",
+                nulls_equal=True,
+                validate="m:1",
+                maintain_order="left",
+            )
+            .with_columns(pl.col("_formatted_level_id").alias("level_id"))
+            .drop("_formatted_level_id")
+        )
     if bias_fn is not None:
         if config.rx_bias in {"mstd", "lsq"}:
             # The solver sees only valid rows; join estimates back for diagnostics.
@@ -581,18 +583,10 @@ def calc_tec_from_df(
 
     lf = lf.drop("_leap_seconds")
 
-    if config.retain_intermediate != "all":
+    if not keep_all:
         lf = lf.filter(pl.col("qc_valid"))
-        cols_to_retain = set()
-        if config.retain_intermediate is None:
-            pass
-        elif isinstance(config.retain_intermediate, str):
-            cols_to_retain.add(config.retain_intermediate)
-        else:
-            cols_to_retain.update(config.retain_intermediate)
-
         cols_available = set(lf.collect_schema().names())
-        cols_to_drop = cols_available.intersection(intermediate_cols) - cols_to_retain
+        cols_to_drop = cols_available.intersection(intermediate_cols) - retained
         lf = lf.drop(cols_to_drop)
 
     # Filters, group-to-row windows and receiver-bias joins preserve the arc sort.

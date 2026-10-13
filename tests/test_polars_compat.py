@@ -47,6 +47,7 @@ def observations() -> tuple[RinexObsHeader, pl.DataFrame]:
             "C2W": np.tile(np.linspace(30, 50, 48), 2) / coeff,
             "L1C": np.tile(phase, 2) * f1 / (c * coeff),
             "L2W": [0.0] * 96,
+            "L1C_lli": np.tile([0] * 12 + [1] + [0] * 11, 4).astype(np.uint8),
         }
     ).with_columns(
         pl.col("elevation", "azimuth").cast(pl.Float32),

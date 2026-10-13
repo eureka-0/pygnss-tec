@@ -1,157 +1,119 @@
-"""Conservative ambiguity segmentation; carrier phase is never rewritten."""
+"""Basic ambiguity segmentation; carrier phase is never rewritten."""
 
 from __future__ import annotations
 
-import numpy as np
+from collections.abc import Sequence
+
 import polars as pl
+
+from .._core import _basic_arcs
+from ._arrow import record_batch
 
 ARC_DTYPE = pl.Struct({"arc_id": pl.UInt32, "qc_reason": pl.String})
 
 
-def _prior_statistics(values: np.ndarray, width: int) -> tuple[np.ndarray, np.ndarray]:
-    """Rolling median/MAD of prior innovations, excluding the current sample."""
-    prior = np.lib.stride_tricks.sliding_window_view(
-        np.r_[np.full(width, np.nan), values[:-1]], width
+def _arc_expressions(
+    lf: pl.LazyFrame,
+    cadence: float | None,
+    groups: Sequence[str] = ("station", "prn"),
+    state_column: str = "_receiver_state",
+) -> pl.LazyFrame:
+    """Split on lock, event, gap, signal-pair and receiver evidence using expressions."""
+
+    def partition(expression: pl.Expr) -> pl.Expr:
+        return expression.over(*groups) if groups else expression
+
+    time = pl.col("time").cast(pl.Int64)
+    previous = partition(time.shift(1))
+    lf = lf.with_columns(
+        ((time - previous) / 1e9).alias("_qc_delta"),
+        previous.is_not_null().alias("_qc_previous"),
     )
-    populated = np.isfinite(prior).any(axis=1)
-    center = np.zeros(len(values))
-    spread = np.zeros(len(values))
-    center[populated] = np.nanmedian(prior[populated], axis=1)
-    spread[populated] = np.nanmedian(
-        np.abs(prior[populated] - center[populated, None]), axis=1
+    interval = (
+        pl.lit(cadence)
+        if cadence is not None
+        else partition(pl.col("_qc_delta").min()).fill_null(1.0)
     )
-    return center, spread
+    half_cycle = ((pl.col("L1_lli").fill_null(0) // 2) % 2 != 0) | (
+        (pl.col("L2_lli").fill_null(0) // 2) % 2 != 0
+    )
+    has_previous = pl.col("_qc_previous")
+    valid = pl.col("_numeric_valid").fill_null(False)
+    rules = {
+        "invalid_observation_or_geometry": ~valid,
+        "half_cycle_invalid": half_cycle,
+        "loss_of_lock": (pl.col("L1_lli").fill_null(0) % 2 != 0)
+        | (pl.col("L2_lli").fill_null(0) % 2 != 0),
+        "epoch_event": pl.col("epoch_flag").fill_null(0) != 0,
+        "reacquisition_gap": (pl.col("_qc_delta") > interval * 1.5) & has_previous,
+        "signal_pair_change": (
+            pl.col("C1_code").ne_missing(partition(pl.col("C1_code").shift(1)))
+            | pl.col("C2_code").ne_missing(partition(pl.col("C2_code").shift(1)))
+        )
+        & has_previous,
+        "receiver_state_change": pl.col(state_column).ne_missing(
+            partition(pl.col(state_column).shift(1))
+        )
+        & has_previous,
+        "reacquisition_after_rejection": partition((~valid | half_cycle).shift(1))
+        & has_previous,
+    }
+    columns = ["_qc_rule_" + name for name in rules]
+    lf = lf.with_columns(
+        expression.fill_null(False).alias(column)
+        for expression, column in zip(rules.values(), columns, strict=True)
+    )
+    return lf.with_columns(
+        partition(
+            (pl.any_horizontal(columns) & has_previous).cast(pl.UInt32).cum_sum()
+        ).alias("arc_id"),
+        pl.concat_str(
+            [
+                pl.when(pl.col(column)).then(pl.lit(name)).otherwise(None)
+                for name, column in zip(rules, columns, strict=True)
+            ],
+            separator="|",
+            ignore_nulls=True,
+        )
+        .replace({"": "ok"})
+        .alias("qc_reason"),
+    ).drop("_qc_delta", "_qc_previous", *columns)
+
+
+def add_basic_arcs(lf: pl.LazyFrame, cadence: float | None) -> pl.LazyFrame:
+    """Materialize once and evaluate basic ambiguity evidence in one Rust pass."""
+    frame = lf.collect()
+    fields = frame.select(
+        pl.col("time").cast(pl.Int64),
+        pl.col("station", "prn", "C1_code", "C2_code", "_receiver_state").cast(
+            pl.String
+        ),
+        pl.col("_numeric_valid").fill_null(False),
+        pl.col("L1_lli", "L2_lli").cast(pl.UInt8),
+        pl.col("epoch_flag").cast(pl.Int64),
+    )
+    result = pl.from_arrow(_basic_arcs(record_batch(fields), cadence))
+    assert isinstance(result, pl.DataFrame)
+    return frame.with_columns(result.get_columns()).lazy()
 
 
 def segment_arcs(
     samples: pl.Series, cadence: float | None, threshold: float, window: int
 ) -> pl.Series:
-    """Combine lock/state flags with cadence-aware GF and robust MW innovations.
-
-    GF alone is sensitive to ionospheric changes. A stable MW combination
-    supports retaining such changes; missing or noisy MW leaves the boundary
-    uncertain. Neither case justifies modifying the original carrier phase.
-    """
-    df = samples.struct.unnest()
-    time = df["time"].to_numpy()
-    phase = df["stec_p_raw"].fill_null(np.nan).to_numpy()
-    code = df["stec_g"].fill_null(np.nan).to_numpy()
-    mw = df["mw"].fill_null(np.nan).to_numpy()
-    valid = df["_numeric_valid"].fill_null(False).to_numpy()
-    lli1 = df["L1_lli"].fill_null(0).to_numpy()
-    lli2 = df["L2_lli"].fill_null(0).to_numpy()
-    flags = df["epoch_flag"].fill_null(0).to_numpy()
-    state = df["receiver_state"].fill_null(0).to_list()
-    pair = list(zip(df["C1_code"].to_list(), df["C2_code"].to_list(), strict=True))
-    arcs = np.zeros(len(df), dtype=np.uint32)
-    reasons: list[str] = []
-    arc = 0
-    start = 0
-
-    if len(df) == 0:
+    """Compatibility wrapper; basic QC does not use GF/MW thresholds or windows."""
+    frame = samples.struct.unnest()
+    if not len(frame):
         return pl.Series([], dtype=ARC_DTYPE)
-    if cadence is None:
-        # Different satellites may have different rates within the same regime.
-        # Infer each group's cadence so slower groups do not acquire false gaps.
-        cadence = float(np.min(np.diff(time))) / 1e9 if len(df) > 1 else 1.0
-    # Bulk statistics keep long arcs inexpensive. Near each new boundary the
-    # shorter local history below prevents evidence from crossing ambiguities.
-    clean_phase = np.where(valid, phase, np.nan)
-    clean_mw = np.where(valid, mw, np.nan)
-    slope_history = np.r_[np.nan, np.diff(clean_phase) / (np.diff(time) / 1e9)]
-    mw_history = np.r_[np.nan, np.diff(clean_mw)]
-    slopes, _ = _prior_statistics(slope_history, window - 1)
-    mw_centers, mw_mads = _prior_statistics(mw_history, window - 1)
-
-    for i in range(len(df)):
-        reason = []
-        boundary = False
-        half_cycle = bool((int(lli1[i]) | int(lli2[i])) & 2)
-        if not valid[i]:
-            reason.append("invalid_observation_or_geometry")
-        if half_cycle:
-            reason.append("half_cycle_invalid")
-        if (int(lli1[i]) | int(lli2[i])) & 1:
-            reason.append("loss_of_lock")
-            boundary = True
-        if flags[i] != 0:
-            reason.append("epoch_event")
-            boundary = True
-        if i:
-            dt = (int(time[i]) - int(time[i - 1])) / 1e9
-            if dt <= 0:
-                raise ValueError(
-                    "Observation times must be finite and unique within each station/PRN."
-                )
-            if dt > cadence * 1.5:
-                reason.append("reacquisition_gap")
-                boundary = True
-            if pair[i] != pair[i - 1]:
-                reason.append("signal_pair_change")
-                boundary = True
-            if state[i] != state[i - 1]:
-                reason.append("receiver_state_change")
-                boundary = True
-            if not valid[i - 1] or ((int(lli1[i - 1]) | int(lli2[i - 1])) & 2):
-                reason.append("reacquisition_after_rejection")
-                boundary = True
-            boundary |= not valid[i] or half_cycle
-            if not boundary and valid[i] and valid[i - 1]:
-                lo = max(start, i - window)
-                if i - start >= window:
-                    slope = slopes[i]
-                else:
-                    t = time[lo:i].astype(np.int64)
-                    local_slopes = np.diff(phase[lo:i]) / (np.diff(t) / 1e9)
-                    local_slopes = local_slopes[np.isfinite(local_slopes)]
-                    slope = (
-                        float(np.median(local_slopes))
-                        if len(local_slopes) >= 3
-                        else 0.0
-                    )
-                innovation = phase[i] - phase[i - 1] - slope * dt
-                gf_jump = abs(innovation) > threshold * max(1.0, dt / cadence)
-                history = mw[lo:i]
-                history = history[np.isfinite(history)]
-                differences = np.diff(history)
-                center = (
-                    mw_centers[i]
-                    if i - start >= window
-                    else (
-                        float(np.median(differences)) if len(differences) >= 3 else 0.0
-                    )
-                )
-                mad = (
-                    mw_mads[i]
-                    if i - start >= window
-                    else (
-                        float(np.median(np.abs(differences - center)))
-                        if len(differences)
-                        else 0.0
-                    )
-                )
-                mw_jump = (
-                    np.isfinite(mw[i])
-                    and len(history) > 0
-                    and abs(mw[i] - history[-1] - center) > max(0.75, 6 * 1.4826 * mad)
-                )
-                if mw_jump:
-                    reason.append("mw_slip" if not gf_jump else "gf_mw_slip")
-                    boundary = True
-                elif gf_jump:
-                    # At least three stable prior MW values support a physical GF change.
-                    code_change = code[i] - code[i - 1]
-                    agrees_with_code = (
-                        abs(code_change - (phase[i] - phase[i - 1])) <= threshold
-                    )
-                    if len(history) >= 3 and mad < 0.1 and agrees_with_code:
-                        reason.append("gf_change_mw_stable")
-                    else:
-                        reason.append("uncertain_gf_jump")
-                        boundary = True
-        if i and boundary:
-            arc += 1
-            start = i
-        arcs[i] = arc
-        reasons.append("|".join(reason) if reason else "ok")
-    return pl.DataFrame({"arc_id": arcs, "qc_reason": reasons}).to_struct()
+    invalid = frame.select((pl.col("time").diff() <= 0).any()).item()
+    if invalid:
+        raise ValueError(
+            "Observation times must be finite and unique within each station/PRN."
+        )
+    return (
+        _arc_expressions(
+            frame.lazy(), cadence, groups=(), state_column="receiver_state"
+        )
+        .select("arc_id", "qc_reason")
+        .collect()
+        .to_struct()
+    )
