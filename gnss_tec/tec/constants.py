@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import math
 import re
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -105,7 +105,7 @@ class TECConfig:
         - "mslm": Modified Single Layer Model
     """
 
-    retain_intermediate: str | Iterable[str] | None | Literal["all"] = None
+    retain_intermediate: Literal["all"] | list[str] | tuple[str, ...] | None = None
     """Intermediate columns to retain; 'all' also keeps rejected diagnostic rows."""
 
     missing_bias: Literal["drop", "warn", "keep_uncorrected", "error"] = "drop"

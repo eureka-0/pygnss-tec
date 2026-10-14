@@ -87,8 +87,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
       - name: Install the supported dependency floors
-        run: uv pip install numpy==2.0.0 polars==1.40.0 pyarrow==21.0.0 scipy==1.16.0 pymap3d==3.2.0
+        run: uv pip install numpy==2.0.0 polars==1.40.0 pyarrow==21.0.0 scipy==1.16.0
       - name: Verify installed versions
-        run: uv run --no-sync python -c "from importlib.metadata import version; expected={'numpy':'2.0.0','polars':'1.40.0','pyarrow':'21.0.0','scipy':'1.16.0','pymap3d':'3.2.0'}; actual={p:version(p) for p in expected}; assert actual == expected; print(actual)"
+        run: uv run --no-sync python -c "from importlib.metadata import version; expected={'numpy':'2.0.0','polars':'1.40.0','pyarrow':'21.0.0','scipy':'1.16.0'}; actual={p:version(p) for p in expected}; assert actual == expected; print(actual)"
       - name: Run tests
         run: uv run --no-sync pytest

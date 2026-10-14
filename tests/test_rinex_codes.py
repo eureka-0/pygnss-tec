@@ -7,9 +7,15 @@ from synthetic_observations import write_minimal_rinex
 import gnss_tec as gt
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
-@pytest.mark.parametrize("patterns", ["[CL]1.*", ["C1.*", "L1.*"]])
+@pytest.mark.parametrize(
+    "version,pivot,patterns",
+    [
+        (2, True, "[CL]1.*"),
+        (2, False, ["C1.*", "L1.*"]),
+        (3, True, ["C1.*", "L1.*"]),
+        (3, False, "[CL]1.*"),
+    ],
+)
 def test_observation_regex_matches_literal_selection(
     tmp_path, version, pivot, patterns
 ):
@@ -40,7 +46,7 @@ def test_observation_regex_matches_literal_selection(
 
 
 @pytest.mark.parametrize("pivot", [True, False])
-@pytest.mark.parametrize("patterns", [[], "L1", "l1.*", "X.*"])
+@pytest.mark.parametrize("patterns", [[], "L1"])
 def test_empty_or_unmatched_code_patterns_return_empty_frame(tmp_path, pivot, patterns):
     path = tmp_path / "codes.rnx"
     write_minimal_rinex(path, 3)

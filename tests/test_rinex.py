@@ -65,6 +65,7 @@ def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3):
     assert df.height == 180027
     assert_has_columns(df, ["L1C_lli", "epoch_flag"])
     assert {"source_file", "receiver_id"}.isdisjoint(df.columns)
+    assert {"azimuth", "elevation"}.isdisjoint(df.columns)
     assert all(df.schema[name] == pl.Float64 for name in ("C1C", "L1C"))
     assert_has_columns(df, ["time", "station", "prn", "C1C", "L1C", "S1C"])
 
@@ -81,30 +82,6 @@ def test_read_rinex_obs_v3_other_station(rinex_obs_v3_bele_hatanaka):
     assert df.height == 107287
     assert df.get_column("station").cast(pl.String).unique().to_list() == ["BELE"]
     assert_has_columns(df, ["time", "station", "prn", "C1C", "L1C"])
-
-
-def test_read_rinex_obs_excludes_derived_geometry(rinex_obs_v3):
-    _, lf = gt.read_rinex_obs(rinex_obs_v3, constellations="G", codes=["C1C", "L1C"])
-    df = lf.collect(engine="in-memory")
-    assert isinstance(df, pl.DataFrame)
-
-    assert_has_columns(df, ["time", "station", "prn", "C1C", "L1C"])
-    assert "azimuth" not in df.columns
-    assert "elevation" not in df.columns
-
-
-def test_read_rinex_obs_gps_time_is_naive_and_leap_shifted(rinex_obs_v3):
-    _, utc_lf = gt.read_rinex_obs(rinex_obs_v3, constellations="G", codes=["C1C"])
-    header, gps_lf = gt.read_rinex_obs(
-        rinex_obs_v3, constellations="G", codes=["C1C"], utc=False
-    )
-    utc_time = utc_lf.select("time").head(1).collect(engine="in-memory").item()
-    gps_time = gps_lf.select("time").head(1).collect(engine="in-memory").item()
-
-    assert gps_lf.collect_schema()["time"] == pl.Datetime("ns")
-    assert (
-        gps_time - utc_time.replace(tzinfo=None)
-    ).total_seconds() == header.leap_seconds
 
 
 def test_read_rinex_obs_long_format(rinex_obs_v3):

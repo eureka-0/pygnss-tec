@@ -46,6 +46,7 @@ uv run pytest
 
 Use `uv` for Python environments/scripts and prefix shell commands with `rtk` (`rtk proxy` for unsupported commands).
 
+- **Agent-generated documentation**: Unless explicitly specified otherwise, save agent-generated Markdown, documents in other formats, and helper files in `./docs/agents/`.
 - **Linting**: The project uses `ruff` for Python code linting.
 - **Code Formatting**: The project uses `ruff` to format the Python code.
 

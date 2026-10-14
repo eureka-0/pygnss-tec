@@ -7,9 +7,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import polars as pl
-import pymap3d as pm
 
-from .._core import _read_obs
+from .._core import _ecef_to_geodetic, _read_obs
 
 ReceiverHeader = tuple[int, tuple[float, float, float], str | None]
 
@@ -356,7 +355,7 @@ def read_rinex_obs(
         obs_fn_list, constellations, observation_codes, pivot
     )
     rx_ecef = (header_dict["rx_x"], header_dict["rx_y"], header_dict["rx_z"])
-    rx_lat, rx_lon, rx_alt = pm.ecef2geodetic(*rx_ecef, deg=True)
+    rx_lat, rx_lon, rx_alt = _ecef_to_geodetic(*rx_ecef)
     first_epoch = header_dict["first_epoch"]
     header = RinexObsHeader(
         version=header_dict["version"],

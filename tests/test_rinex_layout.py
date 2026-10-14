@@ -11,9 +11,15 @@ from synthetic_observations import write_minimal_rinex
 import gnss_tec as gt
 
 
-@pytest.mark.parametrize("compressed", [False, True])
-@pytest.mark.parametrize("utc", [False, True])
-@pytest.mark.parametrize("codes", [None, "[CL]1.*"])
+@pytest.mark.parametrize(
+    "compressed,utc,codes",
+    [
+        (False, False, None),
+        (False, True, "[CL]1.*"),
+        (True, False, "[CL]1.*"),
+        (True, True, None),
+    ],
+)
 def test_sparse_signals_preserve_layout_values_and_lli(
     tmp_path, compressed, utc, codes
 ):

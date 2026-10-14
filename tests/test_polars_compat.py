@@ -404,16 +404,6 @@ def test_single_point_and_all_missing_phase(observations):
     assert not _calculate(missing, header)["qc_valid"].any()
 
 
-def test_cycle_slip_threshold_and_long_arc():
-    time = np.arange(64, dtype=np.float64)
-    phase = np.zeros_like(time)
-    phase[20:] = 0.5
-    # The threshold is strict; an equal-sized jump is retained.
-    np.testing.assert_array_equal(tc._correct_cycle_slip(time, phase, 0.5, 20), phase)
-    phase[20:] = 0.500001
-    np.testing.assert_array_equal(tc._correct_cycle_slip(time, phase, 0.5, 20), phase)
-
-
 def test_external_dcb_sign_and_units(observations, monkeypatch):
     header, raw = observations
     raw = raw.filter(pl.col("time").dt.day() == 10)

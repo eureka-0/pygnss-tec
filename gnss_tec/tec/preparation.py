@@ -6,29 +6,17 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import polars as pl
-import pymap3d as pm
 
-from .._core import _satellite_positions
+from .._core import _azimuth_elevation, _ecef_to_geodetic, _satellite_positions
 from ..rinex import RinexObsHeader
 from ..rinex.read_rinex import _handle_fn
+from ._arrow import record_batch
 
 
-def _azimuth_elevation(samples: pl.Series) -> pl.Series:
-    azimuth, elevation, _ = pm.ecef2aer(
-        samples.struct.field("_sat_x").to_numpy(),
-        samples.struct.field("_sat_y").to_numpy(),
-        samples.struct.field("_sat_z").to_numpy(),
-        samples.struct.field("rx_lat").to_numpy(),
-        samples.struct.field("rx_lon").to_numpy(),
-        samples.struct.field("_rx_alt").to_numpy(),
-        deg=True,
-    )
-    return pl.DataFrame(
-        {
-            "azimuth": pl.Series(azimuth, dtype=pl.Float64),
-            "elevation": pl.Series(elevation, dtype=pl.Float64),
-        }
-    ).to_struct()
+def _calculate_azimuth_elevation(samples: pl.Series) -> pl.Series:
+    result = pl.from_arrow(_azimuth_elevation(record_batch(samples.struct.unnest())))
+    assert isinstance(result, pl.DataFrame)
+    return result.to_struct()
 
 
 def _prepare_observations(
@@ -44,7 +32,7 @@ def _prepare_observations(
         history = sorted(set(header.receiver_history), key=lambda item: item[0])
         if len({item[0] for item in history}) != len(history):
             raise ValueError("Conflicting receiver headers at the same epoch.")
-        positions = [pm.ecef2geodetic(*item[1], deg=True) for item in history]
+        positions = [_ecef_to_geodetic(*item[1]) for item in history]
         receivers = pl.DataFrame(
             {
                 "_header_epoch": pl.Series(
@@ -134,7 +122,7 @@ def _prepare_observations(
             ),
             pl.struct("_sat_x", "_sat_y", "_sat_z", "rx_lat", "rx_lon", "_rx_alt")
             .map_batches(
-                _azimuth_elevation,
+                _calculate_azimuth_elevation,
                 return_dtype=pl.Struct(
                     {"azimuth": pl.Float64, "elevation": pl.Float64}
                 ),

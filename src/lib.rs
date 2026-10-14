@@ -1,4 +1,5 @@
 //! Python entry points; parsing, table construction and geometry live in Rust modules.
+mod geometry;
 mod glonass;
 mod navigation;
 mod observations;
@@ -165,7 +166,23 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_satellite_positions, m)?)?;
     m.add_function(wrap_pyfunction!(_select_observations, m)?)?;
     m.add_function(wrap_pyfunction!(_basic_arcs, m)?)?;
+    m.add_function(wrap_pyfunction!(_azimuth_elevation, m)?)?;
+    m.add_function(wrap_pyfunction!(_ecef_to_geodetic, m)?)?;
     Ok(())
+}
+
+#[pyfunction]
+fn _azimuth_elevation(
+    py: Python<'_>,
+    input: PyArrowType<RecordBatch>,
+) -> PyResult<PyArrowType<RecordBatch>> {
+    py.detach(|| geometry::azimuth_elevation(input.0))
+        .map(PyArrowType)
+}
+
+#[pyfunction]
+fn _ecef_to_geodetic(x: f64, y: f64, z: f64) -> (f64, f64, f64) {
+    geometry::ecef_to_geodetic(x, y, z)
 }
 
 #[pyfunction]

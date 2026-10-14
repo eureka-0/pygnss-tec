@@ -31,6 +31,12 @@ def test_nanosecond_epochs_survive_time_conversion_and_parquet(tmp_path):
     path.write_text(text)
     header, utc = gt.read_rinex_obs(path)
     _, gps = gt.read_rinex_obs(path, utc=False)
+    assert gps.collect_schema()["time"] == pl.Datetime("ns")
+    utc_time = utc.select("time").head(1).collect(engine="in-memory").item()
+    gps_time = gps.select("time").head(1).collect(engine="in-memory").item()
+    assert (
+        gps_time - utc_time.replace(tzinfo=None)
+    ).total_seconds() == header.leap_seconds
     for frame in (utc, gps):
         np.testing.assert_array_equal(
             np.diff(frame.collect(engine="in-memory")["time"].dt.epoch("ns")), [100] * 3
