@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Add keyword-only `read_rinex_obs(..., include_lli=False)`: default wide/long
+  outputs omit LLI and native LLI buffers. Opt in for raw UInt8/null indicators;
+  observations, epoch flags and retained event metadata are unchanged.
+  `calc_tec_from_rinex` explicitly opts in for QC. DataFrame/Parquet callers
+  should retain LLI when recorded lock/half-cycle information is required.
+- Rename `TECConfig.retain_intermediate` to `retain_diagnostics` without an
+  alias. Use None, a list/tuple of supported diagnostic names, or 'all'. Default
+  output includes azimuth/elevation and hides epoch/LLI/QC/calibration fields.
+  'all' retains rejected rows with null public TEC and reasons. All modes omit
+  private leveling/weight/bias-interval fields; unsupported selections raise.
+  `mw` remains selectable in wide-lane cycles; QC and calibration are unchanged.
+- Convert structured package docstrings to NumPy style and document TECConfig
+  defaults, units, validation and output behavior at class and field level.
 
 ## [0.4.2](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.2) - 2026-05-07
 

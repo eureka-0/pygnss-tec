@@ -38,7 +38,9 @@ def test_code_bias_is_removed_before_leveling(monkeypatch, span, reverse):
     result = calculate(h, obs, "unused")
     np.testing.assert_allclose(result["stec_dcb_corrected"], 30.0, rtol=0, atol=1e-6)
     assert result["arc_id"].n_unique() == 1
-    assert result["level_id"].n_unique() == (1 if span == "monthly" else 2)
+    assert {"level_id", "offset", "weight", "tx_bias_start", "tx_bias_end"}.isdisjoint(
+        result.columns
+    )
     assert result["calibration_status"].unique().to_list() == [
         "satellite_code_corrected"
     ]
@@ -59,7 +61,7 @@ def test_external_satellite_and_receiver_biases_are_not_subtracted_twice(monkeyp
         tc, "read_bias", lambda _: pl.concat([satellite, receiver]).lazy()
     )
     result = gt.calc_tec_from_df(
-        obs, h, "unused", TECConfig(retain_intermediate="all")
+        obs, h, "unused", TECConfig(retain_diagnostics="all")
     ).collect(engine="in-memory")
     np.testing.assert_allclose(result["stec"], 35.0, rtol=0, atol=1e-6)
     np.testing.assert_allclose(result["stec_dcb_corrected"], 30.0, rtol=0, atol=1e-6)
@@ -99,7 +101,7 @@ def test_receiver_estimation_recovers_independent_known_bias(monkeypatch, method
         pl.concat(observations),
         h,
         "unused",
-        TECConfig(rx_bias=method, retain_intermediate="all"),
+        TECConfig(rx_bias=method, retain_diagnostics="all"),
     ).collect(engine="in-memory")
     np.testing.assert_allclose(result["rx_bias"], 5.0, rtol=0, atol=1e-5)
     np.testing.assert_allclose(result["vtec"], 20.0, rtol=0, atol=1e-5)
@@ -152,7 +154,7 @@ def test_failed_receiver_estimation_is_not_a_zero_correction(monkeypatch):
     product = bias_rows([datetime(2024, 1, 10)], [datetime(2024, 1, 11)], [0.0])
     monkeypatch.setattr(tc, "read_bias", lambda _: product.lazy())
     result = gt.calc_tec_from_df(
-        obs, h, "unused", TECConfig(rx_bias="mstd", retain_intermediate="all")
+        obs, h, "unused", TECConfig(rx_bias="mstd", retain_diagnostics="all")
     ).collect(engine="in-memory")
     assert result["rx_bias"].null_count() == result.height
     assert result["stec"].null_count() == result.height

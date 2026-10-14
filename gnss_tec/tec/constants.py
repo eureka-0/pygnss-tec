@@ -67,73 +67,191 @@ VALID_MAPPING_FUNCTIONS = {"slm", "mslm"}
 VALID_MISSING_BIAS = {"drop", "warn", "keep_uncorrected", "error"}
 CODE_PATTERN = re.compile(r"^C\d[A-Z]?$")
 
+DIAGNOSTIC_COLUMNS = frozenset(
+    {
+        "epoch_flag",
+        "L1_lli",
+        "L2_lli",
+        "qc_valid",
+        "qc_reason",
+        "calibration_status",
+        "C1_freq",
+        "C2_freq",
+        "mf",
+        "stec_g",
+        "stec_p",
+        "stec_p_raw",
+        "stec_g_corrected",
+        "arc_id",
+        "mw",
+        "C1_val",
+        "C2_val",
+        "L1_val",
+        "L2_val",
+        "S1",
+        "S2",
+        "tx_bias",
+        "rx_bias",
+    }
+)
+"""Optional public TEC diagnostics; availability also depends on bias inputs."""
+
+INTERNAL_COLUMNS = frozenset(
+    {
+        "tx_bias_start",
+        "tx_bias_end",
+        "rx_bias_start",
+        "rx_bias_end",
+        "level_id",
+        "offset",
+        "weight",
+    }
+)
+"""Leveling and bias state that must never appear in returned TEC tables."""
+
 
 @dataclass(frozen=True, kw_only=True)
 class TECConfig:
+    """Configure signal selection, geometry, calibration and TEC output.
+
+    Parameters
+    ----------
+    constellations : str, default 'CG'
+        Nonempty, case-insensitive constellation letters: C (BeiDou) and
+        G (GPS). RINEX 2 defaults provide GPS pairs only.
+    ipp_height : float, default 400
+        Finite, positive shell height in km for the single layer model.
+        The modified model uses a fixed 506.7 km height instead.
+    min_elevation : float, default 30
+        Minimum accepted satellite elevation in degrees, within [0, 90].
+    min_snr : float, default 30
+        Finite, nonnegative minimum SNR in dB-Hz. For each band, null SNR
+        is accepted only when more than half its values are null within
+        the station/selected-code-pair group. Otherwise null SNR is rejected;
+        nonfinite or recorded values below the threshold also reject the row.
+    c1_codes : mapping, optional
+        First-band code priorities, keyed by RINEX major version ('2' or
+        '3'), then constellation. Lists contain C-prefixed observation
+        codes, in priority order starting at zero. Empty input uses the
+        defaults; missing versions/constellations inherit defaults and
+        supplied lists replace that constellation's list. Inputs are copied.
+        RINEX 2: G=[C1]. RINEX 3: G=[C1W, C1C, C1X];
+        C=[C2I, C2D, C2X, C1I, C1D, C1X, C2W, C1C].
+    c2_codes : mapping, optional
+        Second-band priorities with the same mapping/merge rules as
+        `c1_codes`. RINEX 2: G=[C2, C5]. RINEX 3:
+        G=[C2W, C2C, C2X, C5W, C5C, C5X];
+        C=[C6I, C6D, C6X, C7I, C7D, C7X, C5I, C5D, C5X].
+        Selected constellations require supported frequency bands
+        (GPS: 1/2/5; BeiDou: 1/2/5/6/7/8), distinct between the two lists.
+    rx_bias : {'external', 'mstd', 'lsq', None}, default 'external'
+        Receiver code-bias correction from a supplied bias product, or
+        estimation by minimum standard deviation/least squares after
+        satellite correction. None skips receiver correction. Without a
+        bias file this option is inactive. Failed estimation leaves null
+        TEC and a failure status, rather than a zero correction.
+    mapping_function : {'slm', 'mslm'}, default 'slm'
+        Single layer model or modified single layer model. The latter uses
+        a fixed 506.7 km shell and dimensionless correction factor 0.9782.
+    retain_diagnostics : None, list of str, tuple of str, or 'all', default None
+        None returns accepted rows and base results, including azimuth and
+        elevation. A list/tuple adds only the named supported diagnostics
+        on accepted rows. 'all' adds all available diagnostics and retains
+        rejected rows with null public TEC and rejection reasons.
+        Selectable fields are epoch_flag, L1_lli, L2_lli, qc_valid,
+        qc_reason, calibration_status, C1_freq, C2_freq, mf, stec_g,
+        stec_p, stec_p_raw, stec_g_corrected, arc_id, mw, C1_val, C2_val,
+        L1_val, L2_val, S1, S2, tx_bias and rx_bias. Bias diagnostics exist
+        only when bias data are supplied. Geometry requests are allowed
+        but redundant. `mw` is Melbourne-Wuebbena in wide-lane cycles;
+        basic QC checks finiteness without detecting unflagged slips.
+        tx_bias_start/end, rx_bias_start/end, level_id, offset and weight
+        are internal and unavailable in every output mode.
+    missing_bias : {'drop', 'warn', 'keep_uncorrected', 'error'}, default 'drop'
+        Policy for required bias matches when a product is supplied.
+        'drop' rejects unmatched rows; 'warn' also warns; 'error' raises.
+        'keep_uncorrected' applies available corrections and marks missing
+        calibration as uncorrected_missing_bias. Rejected rows are visible
+        only with complete diagnostics. Without a product, TEC is retained
+        as uncorrected_no_bias_product regardless of this setting.
+
+    Raises
+    ------
+    ValueError
+        If values, code mappings/frequencies or diagnostic names violate
+        the constraints above.
+
+    Notes
+    -----
+    Construction is keyword-only and the dataclass is frozen: fields cannot
+    be reassigned. Nested code mappings are copied but remain mutable.
+    Hiding calibration diagnostics does not imply absolute or fully
+    calibrated TEC. Output selection does not change QC or calibration.
+    """
+
     constellations: str = field(
         default_factory=lambda: "".join(SUPPORTED_CONSTELLATIONS.keys())
     )
-    """Constellations to consider for TEC calculation."""
-
-    ipp_height: float = 400
-    """Ionospheric pierce point height in kilometers."""
-
+    ipp_height: float = 400.0
     min_elevation: float = 30.0
-    """Minimum satellite elevation angle in degrees."""
-
     min_snr: float = 30.0
-    """Minimum signal-to-noise ratio in dB-Hz."""
 
     c1_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=dict)
-    """Observation codes priority list for C1 measurements."""
-
     c2_codes: Mapping[str, Mapping[str, list[str]]] = field(default_factory=dict)
-    """Observation codes priority list for C2 measurements."""
 
     rx_bias: Literal["external", "mstd", "lsq"] | None = "external"
-    """Method to correct receiver bias.
-        - "external": Use external bias file(s). If the station is not found in the bias
-            file(s), this will result in an empty dataframe.
-        - "mstd": Estimate receiver bias using the Minimum Standard Deviation method.
-        - "lsq": Estimate receiver bias using Least Squares fitting.
-        - None: Do not correct receiver bias.
-    """
-
     mapping_function: Literal["slm", "mslm"] = "slm"
-    """Mapping function to use:
-        - "slm": Single Layer Model
-        - "mslm": Modified Single Layer Model
-    """
-
-    retain_intermediate: Literal["all"] | list[str] | tuple[str, ...] | None = None
-    """Intermediate columns to retain; 'all' also keeps rejected diagnostic rows."""
-
+    retain_diagnostics: Literal["all"] | list[str] | tuple[str, ...] | None = None
     missing_bias: Literal["drop", "warn", "keep_uncorrected", "error"] = "drop"
-    """How to handle observations whose matching bias is not available.
-        - "drop": Drop observations without required bias data.
-        - "warn": Drop observations without required bias data and emit a warning.
-        - "keep_uncorrected": Keep observations and treat missing bias as zero.
-        - "error": Raise an error if any required bias is missing.
-    """
 
     @property
     def ipp_height_m(self) -> float:
-        """Ionospheric pierce point height in meters."""
+        """Return the configured SLM shell height.
+
+        Returns
+        -------
+        float
+            Height in meters, equal to ipp_height * 1000.
+        """
         return self.ipp_height * 1e3
 
     @property
     def mslm_height_m(self) -> float:
-        """Ionospheric pierce point height for Modified Single Layer Model in meters."""
+        """Return the fixed MSLM shell height.
+
+        Returns
+        -------
+        float
+            Height in meters (506700), independent of ipp_height.
+        """
         return 506.7e3
 
     @property
     def alpha(self) -> float:
-        """Correction factor for Modified Single Layer Model."""
+        """Return the MSLM angular correction factor.
+
+        Returns
+        -------
+        float
+            Dimensionless factor 0.9782.
+        """
         return 0.9782
 
     def iter_c1_codes(
         self, version: Literal["2", "3"]
     ) -> Iterator[tuple[str, str, int]]:
+        """Iterate first-band code priorities for a RINEX major version.
+
+        Parameters
+        ----------
+        version : {'2', '3'}
+            RINEX major version key.
+
+        Yields
+        ------
+        tuple of (str, str, int)
+            Constellation, observation code and zero-based priority.
+        """
         for constellation, codes in self.c1_codes.get(version, {}).items():
             for i, code in enumerate(codes):
                 yield constellation, code, i
@@ -141,11 +259,36 @@ class TECConfig:
     def iter_c2_codes(
         self, version: Literal["2", "3"]
     ) -> Iterator[tuple[str, str, int]]:
+        """Iterate second-band code priorities for a RINEX major version.
+
+        Parameters
+        ----------
+        version : {'2', '3'}
+            RINEX major version key.
+
+        Yields
+        ------
+        tuple of (str, str, int)
+            Constellation, observation code and zero-based priority.
+        """
         for constellation, codes in self.c2_codes.get(version, {}).items():
             for i, code in enumerate(codes):
                 yield constellation, code, i
 
     def code2band(self, version: Literal["2", "3"]) -> Mapping[str, int]:
+        """Map codes to first/second selection slots.
+
+        Parameters
+        ----------
+        version : {'2', '3'}
+            RINEX major version key.
+
+        Returns
+        -------
+        mapping of str to int
+            Constellation_code keys mapped to selection slots 1 or 2,
+            rather than physical RINEX frequency-band numbers.
+        """
         code_band: dict[str, int] = {}
         for const, code, _ in self.iter_c1_codes(version):
             code_band[f"{const}_{code}"] = 1  # C1 band
@@ -154,12 +297,36 @@ class TECConfig:
         return code_band
 
     def c1_priority(self, version: Literal["2", "3"]) -> Mapping[str, int]:
+        """Return first-band priority indices.
+
+        Parameters
+        ----------
+        version : {'2', '3'}
+            RINEX major version key.
+
+        Returns
+        -------
+        mapping of str to int
+            Constellation_code keys mapped to zero-based priorities.
+        """
         priority: dict[str, int] = {}
         for const, code, i in self.iter_c1_codes(version):
             priority[f"{const}_{code}"] = i
         return priority
 
     def c2_priority(self, version: Literal["2", "3"]) -> Mapping[str, int]:
+        """Return second-band priority indices.
+
+        Parameters
+        ----------
+        version : {'2', '3'}
+            RINEX major version key.
+
+        Returns
+        -------
+        mapping of str to int
+            Constellation_code keys mapped to zero-based priorities.
+        """
         priority: dict[str, int] = {}
         for const, code, i in self.iter_c2_codes(version):
             priority[f"{const}_{code}"] = i
@@ -167,6 +334,28 @@ class TECConfig:
 
     @staticmethod
     def validate_codes(codes, default) -> dict[str, dict[str, list[str]]]:
+        """Copy and merge partial observation-code priorities.
+
+        Parameters
+        ----------
+        codes : mapping
+            Overrides keyed by RINEX version, then constellation. Empty
+            input uses all defaults; supplied constellation lists replace
+            their defaults.
+        default : mapping
+            Complete default version/constellation priority lists.
+
+        Returns
+        -------
+        dict of str to dict of str to list of str
+            Independent merged mappings with copied observation-code lists.
+
+        Raises
+        ------
+        ValueError
+            If version/constellation keys or C-prefixed code formats are
+            invalid. Frequency-pair constraints are checked at construction.
+        """
         if not codes:
             return copy.deepcopy(default)
 
@@ -244,6 +433,24 @@ class TECConfig:
                 f"expected one of {VALID_MISSING_BIAS}."
             )
 
+        if self.retain_diagnostics is not None and self.retain_diagnostics != "all":
+            if not isinstance(self.retain_diagnostics, (list, tuple)) or any(
+                not isinstance(name, str) for name in self.retain_diagnostics
+            ):
+                raise ValueError(
+                    "retain_diagnostics must be None, 'all', or a list/tuple of column names."
+                )
+            # Geometry is always public; requesting it remains a harmless no-op.
+            unsupported = (
+                set(self.retain_diagnostics)
+                - DIAGNOSTIC_COLUMNS
+                - {"azimuth", "elevation"}
+            )
+            if unsupported:
+                raise ValueError(
+                    f"Unsupported diagnostic columns: {', '.join(sorted(unsupported))}."
+                )
+
         object.__setattr__(self, "constellations", constellations)
 
         # Set default codes if not provided
@@ -284,6 +491,11 @@ class SamplingConfig:
 
 
 def get_sampling_config(sampling_interval: float) -> SamplingConfig:
+    """Return legacy arc settings for a finite positive cadence in seconds.
+
+    Basic QC uses the cadence directly; these GF/MW thresholds and windows
+    do not enable slip detection.
+    """
     if not math.isfinite(sampling_interval) or sampling_interval <= 0:
         raise ValueError("sampling_interval must be finite and positive.")
     if sampling_interval <= 5:

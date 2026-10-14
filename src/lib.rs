@@ -102,12 +102,14 @@ fn header_dict<'py>(py: Python<'py>, header: &Header) -> PyResult<Bound<'py, PyD
 /// Decode observations and quality indicators, with Python fullmatch code filters.
 /// `pivot` selects a wide table; otherwise each row contains one observation signal.
 #[pyfunction]
+#[pyo3(signature = (obs_fn, constellations, codes, pivot, include_lli=false))]
 fn _read_obs(
     py: Python<'_>,
     obs_fn: Vec<String>,
     constellations: Option<String>,
     codes: Option<Vec<String>>,
     pivot: bool,
+    include_lli: bool,
 ) -> PyResult<(Py<PyDict>, PyArrowType<RecordBatch>)> {
     let observations = py.detach(|| rinex_io::read_files(&obs_fn))?;
     let constellations: FxHashSet<_> = constellations
@@ -138,7 +140,13 @@ fn _read_obs(
     header.set_item("epoch_events", events)?;
     header.set_item("first_epoch", first.map(quality::unix_ns).transpose()?)?;
     let batch = py.detach(|| {
-        observations::record_batch(observations, &constellations, observables.as_ref(), pivot)
+        observations::record_batch(
+            observations,
+            &constellations,
+            observables.as_ref(),
+            pivot,
+            include_lli,
+        )
     })?;
     Ok((header.into(), PyArrowType(batch)))
 }

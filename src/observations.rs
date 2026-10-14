@@ -14,10 +14,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::quality;
 
-#[derive(Default)]
 struct ObservationColumn {
     values: Vec<f64>,
-    lli: Vec<Option<u8>>,
+    lli: Option<Vec<Option<u8>>>,
 }
 
 pub(crate) fn record_batch(
@@ -25,11 +24,12 @@ pub(crate) fn record_batch(
     constellations: &FxHashSet<Constellation>,
     observables: Option<&FxHashSet<Observable>>,
     pivot: bool,
+    include_lli: bool,
 ) -> PyResult<RecordBatch> {
     let (fields, arrays) = if pivot {
-        wide(observations, constellations, observables)?
+        wide(observations, constellations, observables, include_lli)?
     } else {
-        long(observations, constellations, observables)?
+        long(observations, constellations, observables, include_lli)?
     };
     RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)
         .map_err(|error| PyValueError::new_err(error.to_string()))
@@ -39,6 +39,7 @@ fn wide(
     observations: Rinex,
     constellations: &FxHashSet<Constellation>,
     observables: Option<&FxHashSet<Observable>>,
+    include_lli: bool,
 ) -> PyResult<(Vec<Field>, Vec<ArrayRef>)> {
     let mut row_by_satellite: FxHashMap<SV, usize> = FxHashMap::default();
     let mut previous_epoch = None;
@@ -76,11 +77,18 @@ fn wide(
                 previous_row = row;
                 row
             };
-            let column = columns.entry(&signal.observable).or_default();
+            let column = columns
+                .entry(&signal.observable)
+                .or_insert_with(|| ObservationColumn {
+                    values: Vec::new(),
+                    lli: include_lli.then(Vec::new),
+                });
             column.values.resize(times.len(), f64::NAN);
-            column.lli.resize(times.len(), None);
             column.values[row] = signal.value;
-            column.lli[row] = signal.lli.map(|lli| lli.bits());
+            if let Some(lli) = &mut column.lli {
+                lli.resize(times.len(), None);
+                lli[row] = signal.lli.map(|lli| lli.bits());
+            }
         }
     }
 
@@ -100,7 +108,7 @@ fn wide(
                 .or_insert_with(|| satellite.to_string()),
         );
     }
-    let field_count = 3 + 2 * columns.len();
+    let field_count = 3 + (1 + usize::from(include_lli)) * columns.len();
     let mut fields = Vec::with_capacity(field_count);
     fields.push(Field::new("time", DataType::Int64, false));
     fields.push(Field::new("prn", DataType::LargeUtf8, false));
@@ -109,11 +117,13 @@ fn wide(
     arrays.push(Arc::new(prns.finish()));
     for (code, mut column) in columns {
         column.values.resize(len, f64::NAN);
-        column.lli.resize(len, None);
         fields.push(Field::new(&code, DataType::Float64, false));
         arrays.push(Arc::new(Float64Array::from(column.values)));
-        fields.push(Field::new(format!("{code}_lli"), DataType::UInt8, true));
-        arrays.push(Arc::new(UInt8Array::from(column.lli)));
+        if let Some(mut lli) = column.lli {
+            lli.resize(len, None);
+            fields.push(Field::new(format!("{code}_lli"), DataType::UInt8, true));
+            arrays.push(Arc::new(UInt8Array::from(lli)));
+        }
     }
     fields.push(Field::new("epoch_flag", DataType::UInt8, false));
     arrays.push(Arc::new(UInt8Array::from(flags)));
@@ -124,6 +134,7 @@ fn long(
     observations: Rinex,
     constellations: &FxHashSet<Constellation>,
     observables: Option<&FxHashSet<Observable>>,
+    include_lli: bool,
 ) -> PyResult<(Vec<Field>, Vec<ArrayRef>)> {
     // Full reads can reserve from epoch lengths. Filtered reads grow only selected
     // buffers, avoiding a second scan of every signal just to count output rows.
@@ -143,7 +154,7 @@ fn long(
     let mut flags = Vec::with_capacity(len);
     let mut prns = LargeStringBuilder::with_capacity(len, len * 3);
     let mut codes = LargeStringBuilder::with_capacity(len, len * 3);
-    let mut lli = UInt8Builder::with_capacity(len);
+    let mut lli = include_lli.then(|| UInt8Builder::with_capacity(len));
     for (key, epoch) in observations.observations_iter() {
         let time = quality::unix_ns(key.epoch)?;
         for signal in &epoch.signals {
@@ -163,26 +174,30 @@ fn long(
             flags.push(key.flag as u8);
             prns.append_value(prn);
             codes.append_value(code);
-            lli.append_option(signal.lli.map(|lli| lli.bits()));
+            if let Some(lli) = &mut lli {
+                lli.append_option(signal.lli.map(|lli| lli.bits()));
+            }
         }
     }
     drop(observable_names);
     drop(observations);
-    let fields = vec![
+    let mut fields = vec![
         Field::new("time", DataType::Int64, false),
         Field::new("prn", DataType::LargeUtf8, false),
         Field::new("code", DataType::LargeUtf8, false),
         Field::new("value", DataType::Float64, false),
-        Field::new("lli", DataType::UInt8, true),
-        Field::new("epoch_flag", DataType::UInt8, false),
     ];
-    let arrays: Vec<ArrayRef> = vec![
+    let mut arrays: Vec<ArrayRef> = vec![
         Arc::new(Int64Array::from(times)),
         Arc::new(prns.finish()),
         Arc::new(codes.finish()),
         Arc::new(Float64Array::from(values)),
-        Arc::new(lli.finish()),
-        Arc::new(UInt8Array::from(flags)),
     ];
+    if let Some(mut lli) = lli {
+        fields.push(Field::new("lli", DataType::UInt8, true));
+        arrays.push(Arc::new(lli.finish()));
+    }
+    fields.push(Field::new("epoch_flag", DataType::UInt8, false));
+    arrays.push(Arc::new(UInt8Array::from(flags)));
     Ok((fields, arrays))
 }

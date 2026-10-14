@@ -7,7 +7,7 @@ import gnss_tec as gt
 
 
 def test_read_rinex_obs_v2(rinex_obs_v2):
-    header, lf = gt.read_rinex_obs(rinex_obs_v2)
+    header, lf = gt.read_rinex_obs(rinex_obs_v2, include_lli=True)
     df = lf.collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
 
@@ -37,7 +37,7 @@ def test_read_rinex_obs_v2(rinex_obs_v2):
 
 
 def test_read_rinex_obs_v2_glonass(rinex_obs_v2):
-    header, lf = gt.read_rinex_obs(rinex_obs_v2, constellations="R")
+    header, lf = gt.read_rinex_obs(rinex_obs_v2, constellations="R", include_lli=True)
     df = lf.collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
 
@@ -49,8 +49,8 @@ def test_read_rinex_obs_v2_glonass(rinex_obs_v2):
 
 def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3):
     # Full signals and epochs catch compression-state drift across the whole day.
-    header1, lf_hatanaka = gt.read_rinex_obs(rinex_obs_v3_hatanaka)
-    header2, lf = gt.read_rinex_obs(rinex_obs_v3)
+    header1, lf_hatanaka = gt.read_rinex_obs(rinex_obs_v3_hatanaka, include_lli=True)
+    header2, lf = gt.read_rinex_obs(rinex_obs_v3, include_lli=True)
     df_hatanaka = lf_hatanaka.collect(engine="in-memory")
     df = lf.collect(engine="in-memory")
     assert isinstance(df_hatanaka, pl.DataFrame)
@@ -72,7 +72,7 @@ def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3):
 
 def test_read_rinex_obs_v3_other_station(rinex_obs_v3_bele_hatanaka):
     header, lf = gt.read_rinex_obs(
-        rinex_obs_v3_bele_hatanaka, codes=["C1C", "L1C", "C1X", "C2I"]
+        rinex_obs_v3_bele_hatanaka, codes=["C1C", "L1C", "C1X", "C2I"], include_lli=True
     )
     df = lf.collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
@@ -87,7 +87,11 @@ def test_read_rinex_obs_v3_other_station(rinex_obs_v3_bele_hatanaka):
 def test_read_rinex_obs_long_format(rinex_obs_v3):
     # Layout/flag semantics need three signals, not a multi-million-row table.
     _, lf = gt.read_rinex_obs(
-        rinex_obs_v3, constellations="C", codes=["C2I", "L2I", "S2I"], pivot=False
+        rinex_obs_v3,
+        constellations="C",
+        codes=["C2I", "L2I", "S2I"],
+        pivot=False,
+        include_lli=True,
     )
     df = lf.collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
@@ -109,7 +113,11 @@ def test_read_rinex_obs_long_format(rinex_obs_v3):
 
 def test_read_rinex_obs_filters_codes_constellation_and_station(rinex_obs_v3):
     header, lf = gt.read_rinex_obs(
-        rinex_obs_v3, constellations="G", codes=["C1C", "L1C"], station="TEST"
+        rinex_obs_v3,
+        constellations="G",
+        codes=["C1C", "L1C"],
+        station="TEST",
+        include_lli=True,
     )
     df = lf.collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
@@ -131,7 +139,7 @@ def test_read_rinex_obs_filters_codes_constellation_and_station(rinex_obs_v3):
 
 def test_read_rinex_obs_rejects_bad_inputs(rinex_obs_v3):
     with pytest.raises(FileNotFoundError, match="RINEX file not found"):
-        gt.read_rinex_obs("missing.rnx")
+        gt.read_rinex_obs("missing.rnx", include_lli=True)
 
     with pytest.raises(ValueError, match="Unknown constellation code"):
-        gt.read_rinex_obs(rinex_obs_v3, constellations="X")
+        gt.read_rinex_obs(rinex_obs_v3, constellations="X", include_lli=True)

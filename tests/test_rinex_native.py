@@ -48,8 +48,8 @@ def test_event_text_survives_crlf_and_unterminated_last_line(
     text = original.read_text().rstrip("\n").replace("\n", "\r\n")
     variant = tmp_path / ("variant.rnx.gz" if compressed else "variant.rnx")
     variant.write_bytes(gzip.compress(text.encode()) if compressed else text.encode())
-    expected_header, expected = gt.read_rinex_obs(original)
-    actual_header, actual = gt.read_rinex_obs(variant)
+    expected_header, expected = gt.read_rinex_obs(original, include_lli=True)
+    actual_header, actual = gt.read_rinex_obs(variant, include_lli=True)
     assert actual_header.epoch_events == expected_header.epoch_events
     assert_frame_equal(
         actual.collect(engine="in-memory"),

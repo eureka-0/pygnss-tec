@@ -8,9 +8,7 @@ from gnss_tec.rinex import RinexObsHeader
 from gnss_tec.tec.preparation import _prepare_observations
 
 
-@pytest.mark.parametrize(
-    "retain", [None, "all", ["azimuth", "sat_x", "receiver_state"]]
-)
+@pytest.mark.parametrize("retain", [None, "all", ["azimuth", "qc_valid"]])
 def test_tec_output_omits_internal_and_legacy_helpers(retain):
     header, frame = physical_observations(np.full(8, 30.0))
     frame = frame.with_columns(
@@ -22,7 +20,7 @@ def test_tec_output_omits_internal_and_legacy_helpers(retain):
         pl.lit(1).alias("_private_helper"),
     )
     result = gt.calc_tec_from_df(
-        frame, header, config=gt.TECConfig(rx_bias=None, retain_intermediate=retain)
+        frame, header, config=gt.TECConfig(rx_bias=None, retain_diagnostics=retain)
     ).collect(engine="in-memory")
     assert result.height == 8
     assert not any(column.startswith("_") for column in result.columns)
@@ -33,7 +31,7 @@ def test_tec_output_omits_internal_and_legacy_helpers(retain):
         "sat_x",
         "half_cycle_valid",
     }.isdisjoint(result.columns)
-    assert ("azimuth" in result.columns) == (retain is not None)
+    assert {"azimuth", "elevation"}.issubset(result.columns)
 
 
 @pytest.mark.parametrize("version", [2, 3])
@@ -44,7 +42,7 @@ def test_real_fractional_rinex_preserves_quality_events_and_metadata(
     path = tmp_path / "quality.rnx"
     write_minimal_rinex(path, version)
     header, frame = gt.read_rinex_obs(
-        path, codes=["L1" if version == 2 else "L1C"], pivot=pivot
+        path, codes=["L1" if version == 2 else "L1C"], pivot=pivot, include_lli=True
     )
     data = frame.collect(engine="in-memory")
     assert header.sampling_interval == 0.1
@@ -86,7 +84,7 @@ def test_multifile_receiver_identity_is_preserved_in_header(
                 )
         path.write_text(text)
 
-    header, frame = gt.read_rinex_obs(paths[::-1], pivot=pivot)
+    header, frame = gt.read_rinex_obs(paths[::-1], pivot=pivot, include_lli=True)
     data = frame.collect(engine="in-memory")
     assert {"source_file", "receiver_id", "_receiver_index"}.isdisjoint(data.columns)
     assert "receiver_state" not in data.columns
@@ -108,7 +106,7 @@ def test_multifile_event_state_carries_forward(tmp_path):
     write_minimal_rinex(a, 3)
     write_minimal_rinex(b, 3, flagged=False)
     b.write_text(b.read_text().replace("2024 01 10", "2024 01 11"))
-    header, frame = gt.read_rinex_obs([b, a])
+    header, frame = gt.read_rinex_obs([b, a], include_lli=True)
     assert header.epoch_events
     prepared = _prepare_observations(frame, header, pl.col("time"), None).collect(
         engine="in-memory"
@@ -127,14 +125,14 @@ def test_receiver_positions_survive_gps_parquet_roundtrip(tmp_path):
         f"{0.0:14.4f}{6378137.0:14.4f}{0.0:14.4f}",
     )
     paths[1].write_text(text)
-    header, raw = gt.read_rinex_obs(paths[::-1], utc=False)
+    header, raw = gt.read_rinex_obs(paths[::-1], utc=False, include_lli=True)
     observations = raw.with_columns(
         pl.lit(90.0).alias("azimuth"), pl.lit(60.0).alias("elevation")
     ).collect(engine="in-memory")
     path = tmp_path / "receiver-positions.parquet"
     observations.write_parquet(path, metadata=header.to_metadata())
     result = gt.calc_tec_from_parquet(
-        path, config=gt.TECConfig(rx_bias=None, retain_intermediate="all")
+        path, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
     ).collect(engine="in-memory")
     np.testing.assert_allclose(result["rx_lat"], np.zeros(8), rtol=0, atol=1e-12)
     np.testing.assert_allclose(
@@ -154,7 +152,7 @@ def test_all_special_epoch_events_are_preserved(tmp_path, version, flag):
     text = path.read_text()
     text = text.replace("0.1500000  4", f"0.1500000  {flag}")
     path.write_text(text)
-    header, frame = gt.read_rinex_obs(path)
+    header, frame = gt.read_rinex_obs(path, include_lli=True)
     assert [event[1] for event in header.epoch_events] == [flag, 1]
     assert "receiver_state" not in frame.collect_schema()
 
@@ -165,6 +163,6 @@ def test_cycle_slip_epoch_flag_is_preserved(tmp_path, version, pivot):
     path = tmp_path / "slip.rnx"
     write_minimal_rinex(path, version)
     path.write_text(path.read_text().replace("0.3000000  1", "0.3000000  6"))
-    header, frame = gt.read_rinex_obs(path, pivot=pivot)
+    header, frame = gt.read_rinex_obs(path, pivot=pivot, include_lli=True)
     assert [event[1] for event in header.epoch_events] == [4, 6]
     assert 6 in frame.collect(engine="in-memory")["epoch_flag"].to_list()

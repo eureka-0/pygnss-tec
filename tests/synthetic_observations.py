@@ -40,7 +40,7 @@ def calculate(header, observations, bias=None, **kwargs):
         observations,
         header,
         bias,
-        TECConfig(rx_bias=None, retain_intermediate="all", **kwargs),
+        TECConfig(rx_bias=None, retain_diagnostics="all", **kwargs),
     ).collect(engine="in-memory")
 
 

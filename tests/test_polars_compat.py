@@ -58,7 +58,7 @@ def observations() -> tuple[RinexObsHeader, pl.DataFrame]:
 
 def _calculate(df: pl.DataFrame | pl.LazyFrame, header: RinexObsHeader) -> pl.DataFrame:
     return gt.calc_tec_from_df(
-        df, header, config=gt.TECConfig(rx_bias=None, retain_intermediate="all")
+        df, header, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
     ).collect(engine="in-memory")
 
 
@@ -105,9 +105,6 @@ def test_scientific_reference(observations):
             for g, p, w in zip(expected_g, group["stec_p"], weights, strict=True)
         ) / math.fsum(weights)
         np.testing.assert_allclose(
-            group["offset"].to_numpy(), offset, rtol=0, atol=1e-12
-        )
-        np.testing.assert_allclose(
             group["stec"].to_numpy(),
             group["stec_p"].to_numpy() + offset,
             rtol=0,
@@ -131,7 +128,7 @@ def test_shuffled_input_and_inferred_cadence(observations, source, tmp_path):
         path = tmp_path / "shuffled.parquet"
         shuffled.write_parquet(path, metadata=inferred_header.to_metadata())
         actual = gt.calc_tec_from_parquet(
-            path, config=gt.TECConfig(rx_bias=None, retain_intermediate="all")
+            path, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
         ).collect(engine="in-memory")
     else:
         actual = _calculate(
@@ -188,9 +185,10 @@ def test_empty_and_zero_weight_arcs(observations):
     assert _calculate(raw.head(0), header).is_empty()
     zero = raw.with_columns(pl.lit(0.0, dtype=pl.Float32).alias("elevation"))
     result = gt.calc_tec_from_df(
-        zero, header, config=gt.TECConfig(min_elevation=0, retain_intermediate="all")
+        zero, header, config=gt.TECConfig(min_elevation=0, retain_diagnostics="all")
     ).collect(engine="in-memory")
-    assert result["offset"].null_count() == result.height
+    assert "offset" not in result.columns
+    assert result["qc_reason"].str.contains("no_weight_support").all()
     assert result["stec"].null_count() == result.height
 
 
@@ -362,7 +360,7 @@ def test_receiver_bias_high_rate_order(
     )
     monkeypatch.setattr(tc, "read_bias", lambda _: bias.lazy())
     config = gt.TECConfig(
-        rx_bias=method, missing_bias="keep_uncorrected", retain_intermediate="all"
+        rx_bias=method, missing_bias="keep_uncorrected", retain_diagnostics="all"
     )
     header = replace(header, sampling_interval=cadence)
     expected = gt.calc_tec_from_df(raw, header, Path("unused"), config).collect(
@@ -429,7 +427,7 @@ def test_external_dcb_sign_and_units(observations, monkeypatch):
     )
     monkeypatch.setattr(tc, "read_bias", lambda _: bias.lazy())
     result = gt.calc_tec_from_df(
-        raw, header, Path("unused"), gt.TECConfig(retain_intermediate="all")
+        raw, header, Path("unused"), gt.TECConfig(retain_diagnostics="all")
     ).collect(engine="in-memory")
     f1, f2 = 1575.42e6, 1227.60e6
     tecu_per_ns = 1e-9 * c * f1**2 * f2**2 / (f1**2 - f2**2) / 40.3e16

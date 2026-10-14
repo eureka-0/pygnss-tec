@@ -17,22 +17,25 @@ class MappingFunctionProtocol(Protocol):
         rx_lon_deg: pl.Expr,
         config: TECConfig,
     ) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
-        """
-        Calculate the mapping function and Ionospheric Pierce Point (IPP) latitude and
-        longitude.
+        """Construct mapping factor and ionospheric pierce point expressions.
 
-        Args:
-            azimuth (pl.Expr): Satellite azimuth angle in degrees.
-            elevation (pl.Expr): Satellite elevation angle in degrees.
-            rx_lat_deg (pl.Expr): Receiver latitude in degrees.
-            rx_lon_deg (pl.Expr): Receiver longitude in degrees.
-            config (TECConfig): Configuration parameters.
+        Parameters
+        ----------
+        azimuth, elevation : polars.Expr
+            Satellite azimuth/elevation in degrees.
+        rx_lat_deg, rx_lon_deg : polars.Expr
+            Receiver latitude/longitude in degrees.
+        config : TECConfig
+            Mapping model and shell-height configuration.
 
-        Returns:
-            (pl.Expr, pl.Expr, pl.Expr): A tuple containing,
-                - Mapping function (pl.Expr)
-                - IPP latitude in degrees (pl.Expr)
-                - IPP longitude in degrees (pl.Expr)
+        Returns
+        -------
+        mf : polars.Expr
+            Dimensionless slant-to-vertical mapping factor (VTEC=STEC/mf).
+        ipp_lat : polars.Expr
+            Pierce point latitude in degrees.
+        ipp_lon : polars.Expr
+            Pierce point longitude in degrees, wrapped to [-180, 180).
         """
         ...
 
@@ -44,6 +47,26 @@ def single_layer_model(
     rx_lon_deg: pl.Expr,
     config: TECConfig,
 ) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
+    """Construct single layer mapping and pierce point expressions.
+
+    Parameters
+    ----------
+    azimuth, elevation : polars.Expr
+        Satellite azimuth/elevation in degrees.
+    rx_lat_deg, rx_lon_deg : polars.Expr
+        Receiver latitude/longitude in degrees.
+    config : TECConfig
+        Shell height from ipp_height, in km.
+
+    Returns
+    -------
+    mf : polars.Expr
+        Dimensionless mapping factor for VTEC=STEC/mf.
+    ipp_lat : polars.Expr
+        Pierce point latitude in degrees.
+    ipp_lon : polars.Expr
+        Pierce point longitude in degrees, wrapped to [-180, 180).
+    """
     az = azimuth.radians()
     el = elevation.radians()
     rx_lat = rx_lat_deg.radians()
@@ -76,6 +99,27 @@ def modified_single_layer_model(
     rx_lon_deg: pl.Expr,
     config: TECConfig,
 ) -> tuple[pl.Expr, pl.Expr, pl.Expr]:
+    """Construct modified single layer mapping and pierce point expressions.
+
+    Parameters
+    ----------
+    azimuth, elevation : polars.Expr
+        Satellite azimuth/elevation in degrees.
+    rx_lat_deg, rx_lon_deg : polars.Expr
+        Receiver latitude/longitude in degrees.
+    config : TECConfig
+        Fixed MSLM shell height (506.7 km) and dimensionless alpha (0.9782).
+        The configured SLM ipp_height does not affect this model.
+
+    Returns
+    -------
+    mf : polars.Expr
+        Dimensionless mapping factor for VTEC=STEC/mf.
+    ipp_lat : polars.Expr
+        Pierce point latitude in degrees from the modified-model geometry.
+    ipp_lon : polars.Expr
+        Pierce point longitude in degrees, wrapped to [-180, 180).
+    """
     az = azimuth.radians()
     el = elevation.radians()
     rx_lat = rx_lat_deg.radians()

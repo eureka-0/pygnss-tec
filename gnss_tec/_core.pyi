@@ -19,7 +19,11 @@ class _ObsHeader(TypedDict):
     first_epoch: int | None
 
 def _read_obs(
-    obs_fn: list[str], constellations: str | None, codes: list[str] | None, pivot: bool
+    obs_fn: list[str],
+    constellations: str | None,
+    codes: list[str] | None,
+    pivot: bool,
+    include_lli: bool = False,
 ) -> tuple[_ObsHeader, RecordBatch]: ...
 def _satellite_positions(
     nav_fn: list[str], times: list[int], prns: list[str]

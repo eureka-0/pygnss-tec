@@ -70,6 +70,7 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
             obs[::-1],
             constellations="G" if v2 else "CG",
             codes=OBSERVATION_CODES["2" if v2 else "3"],
+            include_lli=True,
         )
         full_observations = lf.collect(engine="in-memory")
         # Keep the materialized reference, releasing its native long-table input.
@@ -80,7 +81,7 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
             observations,
             header,
             station_bias,
-            gt.TECConfig(retain_intermediate="all"),
+            gt.TECConfig(retain_diagnostics="all"),
             nav_fn=nav,
         ).collect(engine="in-memory")
         individual_readers = []
@@ -89,6 +90,7 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
                 path,
                 constellations="G" if v2 else "CG",
                 codes=OBSERVATION_CODES["2" if v2 else "3"],
+                include_lli=True,
             )
             assert individual_header.marker_name == station
             individual_readers.append(part)
@@ -143,7 +145,9 @@ def test_multiday_glonass_navigation(test_data_dir, station):
         for day in (10, 11)
     ]
     nav = [test_data_dir / f"rinex_nav_v2/brdc{day:03d}0.24g.gz" for day in (10, 11)]
-    header, lf = gt.read_rinex_obs(obs[::-1], constellations="R", codes=["C1", "L1"])
+    header, lf = gt.read_rinex_obs(
+        obs[::-1], constellations="R", codes=["C1", "L1"], include_lli=True
+    )
     columns = [
         *lf.collect_schema(),
         "azimuth",
@@ -162,7 +166,9 @@ def test_multiday_glonass_navigation(test_data_dir, station):
     )
     individual = []
     for path in obs:
-        header, part = gt.read_rinex_obs(path, constellations="R", codes=["C1", "L1"])
+        header, part = gt.read_rinex_obs(
+            path, constellations="R", codes=["C1", "L1"], include_lli=True
+        )
         individual.append(
             _prepare_observations(part, header, pl.col("time"), nav)
             .select(columns)
@@ -188,7 +194,7 @@ def test_multiday_glonass_navigation(test_data_dir, station):
 @pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
 def test_multiday_shuffled_gps_and_parquet(multiday_data, station, tmp_path):
     data = multiday_data[station]
-    config = gt.TECConfig(retain_intermediate="all")
+    config = gt.TECConfig(retain_diagnostics="all")
     shuffled = data.observations.sample(fraction=1, shuffle=True, seed=29)
     inferred = replace(data.header, sampling_interval=None)
     from_shuffled = gt.calc_tec_from_df(
@@ -222,7 +228,7 @@ def test_multiday_arc_and_daily_dcb_reference(multiday_data, station):
         data.observations,
         data.header,
         data.bias,
-        gt.TECConfig(retain_intermediate="all"),
+        gt.TECConfig(retain_diagnostics="all"),
         nav_fn=data.nav,
     ).collect(engine="in-memory")
     result = result.filter("qc_valid")
@@ -239,13 +245,29 @@ def test_multiday_arc_and_daily_dcb_reference(multiday_data, station):
             (pl.col("time") + pl.duration(seconds=18)).dt.date().n_unique()
         ).item()
         crosses_midnight |= days > 1
-    for level in result.partition_by("station", "prn", "arc_id", "level_id"):
+    # These fixtures use daily products. Group by the independently known GPS
+    # validity day instead of exposing private leveling IDs and offsets.
+    levels = result.with_columns(
+        (
+            (pl.col("time") + pl.duration(seconds=18)).dt.date()
+            if data.bias is not None
+            else pl.lit(None, dtype=pl.Date)
+        ).alias("_bias_day")
+    )
+    for level in levels.partition_by("station", "prn", "arc_id", "_bias_day"):
         weights = np.sin(np.deg2rad(level["elevation"].to_numpy())) ** 2
         expected = math.fsum(
             (level["stec_g_corrected"] - level["stec_p"]).to_numpy() * weights
         ) / math.fsum(weights)
         np.testing.assert_allclose(
-            level["offset"].to_numpy(), expected, rtol=0, atol=1e-9
+            (
+                level["stec"]
+                - level["stec_p"]
+                - (level["stec_g"] - level["stec_g_corrected"])
+            ).to_numpy(),
+            expected,
+            rtol=0,
+            atol=1e-9,
         )
     assert crosses_midnight, f"{station} must exercise an arc spanning GPS midnight"
     if data.bias is None:
@@ -310,7 +332,10 @@ def test_reader_rejects_mixed_receivers(multiday_data, version):
     a, b = multiday_data[first], multiday_data[second]
     with pytest.raises(ValueError, match="same station"):
         gt.read_rinex_obs(
-            [a.obs[0], b.obs[0]], station="OVERRIDE", codes=OBSERVATION_CODES[version]
+            [a.obs[0], b.obs[0]],
+            station="OVERRIDE",
+            codes=OBSERVATION_CODES[version],
+            include_lli=True,
         )
 
 

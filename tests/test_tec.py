@@ -23,7 +23,7 @@ def _assert_corrected_relationship(df: pl.DataFrame) -> None:
 @pytest.fixture(scope="module")
 def full_day_observations(rinex_obs_v3, rinex_nav_v3):
     """Share all signals across the two whole-day receiver-estimation methods."""
-    header, lf = gt.read_rinex_obs(rinex_obs_v3, constellations="CG")
+    header, lf = gt.read_rinex_obs(rinex_obs_v3, constellations="CG", include_lli=True)
     return header, lf.collect(engine="in-memory")
 
 
@@ -31,7 +31,7 @@ def test_calc_tec_from_rinex_matches_hatanaka(
     rinex_obs_v3_hatanaka, rinex_obs_v3, rinex_nav_v3, bias
 ):
     # Whole-day mixed constellations exercise real signal fallback and long arcs.
-    config = gt.TECConfig(retain_intermediate="mf")
+    config = gt.TECConfig(retain_diagnostics=["mf"])
     df = gt.calc_tec_from_rinex(rinex_obs_v3, rinex_nav_v3, bias, config).collect(
         engine="in-memory"
     )
@@ -45,7 +45,7 @@ def test_calc_tec_from_rinex_matches_hatanaka(
     assert_prns_start_with(df, "CG")
     assert set(df["prn"].cast(pl.String).str.slice(0, 1)) == {"C", "G"}
     assert_frame_equal(df_hatanaka, df, check_exact=False, rel_tol=0, abs_tol=1e-8)
-    assert_has_columns(df, ["qc_valid", "qc_reason", "calibration_status"])
+    assert {"qc_valid", "qc_reason", "calibration_status"}.isdisjoint(df.columns)
     assert {"source_file", "receiver_id"}.isdisjoint(df.columns)
     assert_valid_tec_frame(df)
     assert 35 < _median(df, "vtec") < 50
@@ -54,8 +54,8 @@ def test_calc_tec_from_rinex_matches_hatanaka(
 
 
 def test_calc_tec_from_df_matches_rinex(short_rinex_v3, rinex_nav_v3, bias):
-    header, lf = gt.read_rinex_obs(short_rinex_v3, constellations="G")
-    config = gt.TECConfig(constellations="G", retain_intermediate="mf")
+    header, lf = gt.read_rinex_obs(short_rinex_v3, constellations="G", include_lli=True)
+    config = gt.TECConfig(constellations="G", retain_diagnostics=["mf"])
     from_df = gt.calc_tec_from_df(
         lf, header, bias, config, nav_fn=rinex_nav_v3
     ).collect(engine="in-memory")
@@ -76,7 +76,7 @@ def test_calc_tec_from_df_accepts_gps_time(small_observations, bias, rinex_nav_v
         .dt.replace_time_zone(None)
         .alias("time")
     )
-    config = gt.TECConfig(retain_intermediate="mf")
+    config = gt.TECConfig(retain_diagnostics=["mf"])
 
     from_utc = gt.calc_tec_from_df(
         observations, header, bias, config, nav_fn=rinex_nav_v3
@@ -115,7 +115,7 @@ def test_calc_tec_from_parquet_matches_dataframe(
     header, observations = small_observations
     parquet_fn = tmp_path / "obs.parquet"
     observations.write_parquet(parquet_fn, metadata=header.to_metadata())
-    config = gt.TECConfig(retain_intermediate="mf")
+    config = gt.TECConfig(retain_diagnostics=["mf"])
 
     from_parquet = gt.calc_tec_from_parquet(
         parquet_fn, bias, config, nav_fn=rinex_nav_v3
@@ -142,7 +142,7 @@ def test_calc_tec_from_parquet_preserves_gps_time(
     )
     parquet_fn = tmp_path / "gps_obs.parquet"
     gps_observations.write_parquet(parquet_fn, metadata=header.to_metadata())
-    config = gt.TECConfig(retain_intermediate="mf")
+    config = gt.TECConfig(retain_diagnostics=["mf"])
 
     from_parquet = gt.calc_tec_from_parquet(
         parquet_fn, bias, config, nav_fn=rinex_nav_v3
@@ -176,7 +176,9 @@ def test_calc_tec_without_bias_uses_uncorrected_stec(small_observations, rinex_n
     df = gt.calc_tec_from_df(
         observations,
         header,
-        config=gt.TECConfig(rx_bias=None, retain_intermediate="mf"),
+        config=gt.TECConfig(
+            rx_bias=None, retain_diagnostics=["mf", "calibration_status"]
+        ),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
@@ -218,7 +220,7 @@ def test_estimated_receiver_bias_methods(
         observations,
         header,
         bias,
-        gt.TECConfig(rx_bias=method, retain_intermediate=["mf", "rx_bias"]),
+        gt.TECConfig(rx_bias=method, retain_diagnostics=["mf", "rx_bias"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     assert isinstance(df, pl.DataFrame)
@@ -237,14 +239,14 @@ def test_mapping_function_choice_changes_vtec(small_observations, bias, rinex_na
         observations,
         header,
         bias,
-        gt.TECConfig(mapping_function="slm", retain_intermediate=["mf"]),
+        gt.TECConfig(mapping_function="slm", retain_diagnostics=["mf"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     mslm = gt.calc_tec_from_df(
         observations,
         header,
         bias,
-        gt.TECConfig(mapping_function="mslm", retain_intermediate=["mf"]),
+        gt.TECConfig(mapping_function="mslm", retain_diagnostics=["mf"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     assert isinstance(slm, pl.DataFrame)
@@ -255,7 +257,7 @@ def test_mapping_function_choice_changes_vtec(small_observations, bias, rinex_na
     assert not slm.get_column("mf").equals(mslm.get_column("mf"))
 
 
-def test_retain_intermediate_controls_output_columns(
+def test_retain_diagnostics_controls_output_columns(
     small_observations, bias, rinex_nav_v3
 ):
     header, observations = small_observations
@@ -263,21 +265,21 @@ def test_retain_intermediate_controls_output_columns(
         observations,
         header,
         bias,
-        gt.TECConfig(retain_intermediate="all"),
+        gt.TECConfig(retain_diagnostics="all"),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     selected_cols = gt.calc_tec_from_df(
         observations,
         header,
         bias,
-        gt.TECConfig(retain_intermediate=["mf", "tx_bias"]),
+        gt.TECConfig(retain_diagnostics=["mf", "tx_bias"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     assert isinstance(all_cols, pl.DataFrame)
     assert isinstance(selected_cols, pl.DataFrame)
 
     assert_has_columns(
-        all_cols, ["mf", "stec_g", "stec_p", "arc_id", "offset", "tx_bias", "rx_bias"]
+        all_cols, ["mf", "stec_g", "stec_p", "arc_id", "mw", "tx_bias", "rx_bias"]
     )
     assert_has_columns(selected_cols, ["mf", "tx_bias"])
     assert "stec_g" not in selected_cols.columns
@@ -308,14 +310,14 @@ def test_min_elevation_filters_tec_output(small_observations, bias, rinex_nav_v3
         observations,
         header,
         bias,
-        gt.TECConfig(retain_intermediate="elevation"),
+        gt.TECConfig(retain_diagnostics=["elevation"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     high_elevation = gt.calc_tec_from_df(
         observations,
         header,
         bias,
-        gt.TECConfig(min_elevation=60, retain_intermediate="elevation"),
+        gt.TECConfig(min_elevation=60, retain_diagnostics=["elevation"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     assert isinstance(baseline, pl.DataFrame)
@@ -334,7 +336,7 @@ def test_missing_external_receiver_bias_can_be_kept_uncorrected(
         observations,
         header,
         bias,
-        gt.TECConfig(retain_intermediate="rx_bias"),
+        gt.TECConfig(retain_diagnostics=["rx_bias"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
     kept = gt.calc_tec_from_df(
@@ -342,7 +344,7 @@ def test_missing_external_receiver_bias_can_be_kept_uncorrected(
         header,
         bias,
         gt.TECConfig(
-            missing_bias="keep_uncorrected", retain_intermediate=["rx_bias", "tx_bias"]
+            missing_bias="keep_uncorrected", retain_diagnostics=["rx_bias", "tx_bias"]
         ),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")

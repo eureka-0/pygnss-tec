@@ -63,8 +63,10 @@ def test_sparse_signals_preserve_layout_values_and_lli(
     else:
         path.write_text(text)
 
-    wide_header, wide = gt.read_rinex_obs(path, codes=codes, utc=utc)
-    long_header, long = gt.read_rinex_obs(path, codes=codes, utc=utc, pivot=False)
+    wide_header, wide = gt.read_rinex_obs(path, codes=codes, utc=utc, include_lli=True)
+    long_header, long = gt.read_rinex_obs(
+        path, codes=codes, utc=utc, pivot=False, include_lli=True
+    )
     assert wide_header == long_header
     origin = (
         datetime(2024, 1, 9, 23, 59, 42, tzinfo=UTC) if utc else datetime(2024, 1, 10)

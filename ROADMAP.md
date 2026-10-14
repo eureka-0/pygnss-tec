@@ -6,12 +6,12 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 
 ## Current Focus
 
-- **Main goal:** deliver the agreed reader/TEC output contract (T027–T029) while preserving QC and calibration behavior; resolve the outstanding R01–R04 findings.
+- **Main goal:** resolve the outstanding R01–R04 findings while preserving the delivered reader/TEC output contract and basic QC/calibration behavior.
 - **Underway:** no task is currently in progress.
-- **Next implementation run:** complete T027, T028 and T029 together: optional LLI, simpler TEC/diagnostic outputs with `retain_diagnostics`, synchronized README examples and NumPy-style Python docstrings with complete TECConfig hover documentation. This is a user-selected delivery group, not a technical dependency chain.
-- **Reader policy:** skip special events with blank epoch fields (R03); `include_lli=False` omits selected LLI columns (T027), while RINEX-to-TEC explicitly enables LLI.
+- **Delivered:** T027, T028 and T029 completed together: optional native LLI, `retain_diagnostics`, default satellite geometry, synchronized README output and NumPy-style docstrings with class/field TECConfig documentation. See Recently Completed.
+- **Next implementation run:** R01, then R02 are the recommended correctness fixes; R03 can proceed independently. R04 needs event/reset classification before implementation.
+- **Reader policy:** `include_lli=False` omits selected LLI columns, while RINEX-to-TEC explicitly enables LLI. Skipping special events with blank epoch fields remains pending under R03.
 - **Open decisions:** R04 needs timestamped event/reset classification. R05 will evaluate rolling GF/MW detection, its TEC accuracy and runtime tradeoff, and small-slip sensitivity. T005 will explore high-performance kernels; the default remains basic QC pending validation and review.
-- **After that:** R01, then R02 are the recommended correctness fixes; R03 can proceed independently. R04 needs event/reset classification before implementation.
 
 ## Milestones
 
@@ -72,8 +72,6 @@ These tables are the authority for active task priority, status and dependencies
 |---|---|---|---|---|---|
 | T018 | Standardize export metadata and add Xarray/NetCDF | P2 | backlog | — | [Plan](docs/tasks/T018.md) |
 | T019 | Add a CLI that delegates to the library | P2 | backlog | — | [Plan](docs/tasks/T019.md) |
-| T027 | Make LLI output optional in RINEX observation reads | P2 | ready | — | [Plan](docs/tasks/T027.md) |
-| T028 | Simplify TEC output and diagnostic columns | P2 | ready | — | [Plan](docs/tasks/T028.md) |
 
 ### Engineering & Release
 
@@ -85,7 +83,6 @@ These tables are the authority for active task priority, status and dependencies
 | T024 | Measure coverage and maintain compatibility matrices | P3 | backlog | — | [Scope & acceptance](#t024-measure-coverage-and-maintain-compatibility-matrices) |
 | T025 | Gate publishing on installed-artifact validation | P3 | backlog | — | [Plan](docs/tasks/T025.md) |
 | T026 | Document scientific assumptions and operating limits | P3 | backlog | — | [Scope & acceptance](#t026-document-scientific-assumptions-and-operating-limits) |
-| T029 | Migrate Python docstrings to NumPy style | P3 | ready | — | [Scope & acceptance](#t029-migrate-python-docstrings-to-numpy-style) |
 
 ### Inline task specifications
 
@@ -129,19 +126,13 @@ Before starting, inspect current CI/dependency groups, select coverage reporting
 
 Before starting, inventory undocumented contracts against the current implementation and completed task evidence. Re-run the exact affected examples and preserve native output; cite dated memory/performance measurements with their input and environment limits. T029 owns docstring formatting; this task owns the broader scientific guidance.
 
-#### T029: Migrate Python docstrings to NumPy style
-
-**Scope and approach:** Python docstrings in `gnss_tec/`, including reader/TEC APIs, mapping/bias utilities and configuration classes. Inventory existing documentation, then replace Google-style sections with NumPy-style `Parameters`, `Returns`/`Yields`, `Raises` and `Attributes` where applicable. Keep concise one-line docstrings for simple helpers; do not add empty sections or expand undocumented private helpers solely for uniformity. Follow the [numpydoc style guide](https://numpydoc.readthedocs.io/en/latest/format.html) without adding a documentation framework or dependency.
-
-**TECConfig hover contract:** add a complete class docstring covering all constructor parameters, types, effective defaults, units, allowed values and validation constraints. Explain observation-code mapping/priority defaults, receiver-bias and missing-bias behavior, mapping models and all `retain_diagnostics` modes, including selectable `mw` and unavailable internal columns. Document the frozen, keyword-only configuration and public properties/methods with their units and return meanings. Keep field-level documentation discoverable on instance-attribute hover as well as class/constructor hover; class documentation alone is insufficient. Preserve Python 3.12 compatibility and avoid runtime wrappers or new dependencies solely to expose documentation.
-
-**Acceptance and validation:** documented parameter names, defaults, return types, units, supported inputs and exceptions match current signatures and the T027/T028 contracts. Existing scientific qualifications and examples survive the conversion. Inspect structured package docstrings for leftover Google-style sections, run applicable existing lint/format checks and re-run affected executable examples. Inspect actual hover text in the available editor/language service for `TECConfig`, a constructor keyword, an instance field and a public property; verify readable formatting and complete field descriptions. If hover inspection is unavailable, report that limit rather than claiming it verified. No runtime or algorithm changes belong to this formatting task.
-
-**Next:** migrate the reader and TEC/configuration docstrings alongside T027/T028, then convert the remaining structured package docstrings. Add a concise NumPy-style convention to AGENTS.md during implementation. Complete all three tasks in the next implementation run; their coordination does not create a hard dependency.
-
 ## Recently Completed
 
-No recent entries.
+| ID | Task | Priority | Status | Dependencies | Completed | Outcome |
+|---|---|---|---|---|---|---|
+| T027 | Make LLI output optional in RINEX observation reads | P2 | done | — | 2026-10-14 | Native/Python wide and long output defaults omit LLI; RINEX-to-TEC explicitly opts in. [Record](docs/tasks/T027.md) |
+| T028 | Simplify TEC output and diagnostic columns | P2 | done | — | 2026-10-14 | `retain_diagnostics` replaces the old option; geometry is always public, diagnostics are selectable and leveling/bias state remains private. [Record](docs/tasks/T028.md) |
+| T029 | Migrate Python docstrings to NumPy style | P3 | done | — | 2026-10-14 | Package sections, TECConfig class/field/method documentation and AGENTS.md convention updated; actual ty hover inspected with its keyword-doc limitation recorded. [Record](docs/tasks/T029.md) |
 
 ## Conventions
 

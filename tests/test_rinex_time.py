@@ -10,7 +10,7 @@ import gnss_tec as gt
 def test_fractional_rinex_completes_tec(tmp_path, version):
     path = tmp_path / "fractional.rnx"
     write_minimal_rinex(path, version, flagged=False)
-    header, obs = gt.read_rinex_obs(path)
+    header, obs = gt.read_rinex_obs(path, include_lli=True)
     result = calculate(
         header,
         obs.with_columns(
@@ -29,8 +29,8 @@ def test_nanosecond_epochs_survive_time_conversion_and_parquet(tmp_path):
     for i in range(1, 4):
         text = text.replace(f"{i / 10:.7f}", f"{i / 1e7:.7f}")
     path.write_text(text)
-    header, utc = gt.read_rinex_obs(path)
-    _, gps = gt.read_rinex_obs(path, utc=False)
+    header, utc = gt.read_rinex_obs(path, include_lli=True)
+    _, gps = gt.read_rinex_obs(path, utc=False, include_lli=True)
     assert gps.collect_schema()["time"] == pl.Datetime("ns")
     utc_time = utc.select("time").head(1).collect(engine="in-memory").item()
     gps_time = gps.select("time").head(1).collect(engine="in-memory").item()
@@ -56,4 +56,4 @@ def test_finer_than_nanosecond_precision_is_rejected(tmp_path):
     write_minimal_rinex(path, 3, flagged=False)
     path.write_text(path.read_text().replace("0.1000000", "0.0000000001"))
     with pytest.raises(ValueError, match="precision finer than nanoseconds"):
-        gt.read_rinex_obs(path)
+        gt.read_rinex_obs(path, include_lli=True)

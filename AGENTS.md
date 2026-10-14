@@ -49,6 +49,7 @@ Use `uv` for Python environments/scripts and prefix shell commands with `rtk` (`
 - **Agent-generated documentation**: Unless explicitly specified otherwise, save agent-generated Markdown, documents in other formats, and helper files in `./docs/agents/`.
 - **Linting**: The project uses `ruff` for Python code linting.
 - **Code Formatting**: The project uses `ruff` to format the Python code.
+- **Docstrings**: Use NumPy-style `Parameters`, `Returns`/`Yields`, `Raises` and `Attributes` sections where applicable.
 
 You can run the linter and formatter with the following commands:
 

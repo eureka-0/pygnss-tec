@@ -66,7 +66,7 @@ def test_flags_and_rejection_policy():
         engine="in-memory"
     )
     assert normal.height == 7
-    assert normal["qc_valid"].all()
+    assert "qc_valid" not in normal.columns
 
 
 @pytest.mark.parametrize(

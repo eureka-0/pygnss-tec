@@ -11,7 +11,13 @@ from numpy.typing import NDArray
 
 from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
 from .bias import estimate_rx_bias, read_bias
-from .constants import CODE_FREQUENCIES, TECConfig, c
+from .constants import (
+    CODE_FREQUENCIES,
+    DIAGNOSTIC_COLUMNS,
+    INTERNAL_COLUMNS,
+    TECConfig,
+    c,
+)
 from .mapping_func import modified_single_layer_model, single_layer_model
 from .preparation import _prepare_observations
 from .quality import add_basic_arcs
@@ -94,36 +100,49 @@ def calc_tec_from_df(
     *,
     nav_fn: str | Path | Iterable[str | Path] | None = None,
 ) -> pl.LazyFrame:
-    """
-    Calculate the Total Electron Content (TEC) from a Polars DataFrame or LazyFrame
-    containing GNSS observations.
+    """Calculate TEC from wide GNSS observations.
 
-    Args:
-        df (pl.DataFrame | pl.LazyFrame): Input DataFrame or LazyFrame containing GNSS
-            observations.
-        header (RinexObsHeader): RINEX observation file header. It is used to infer the
-            RINEX metadata such as version, receiver position, and sampling interval.
-            Existing rx_lat/rx_lon columns take precedence over the header position.
-        bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
-            bias file(s). If provided, DCB biases will be applied to the TEC
-            calculation. Defaults to None.
-        config (TECConfig, optional): Configuration parameters for TEC calculation.
-            Defaults to TECConfig().
-        nav_fn: Navigation file(s) for computing geometry from raw observations.
-            Required unless the input already provides azimuth and elevation.
-            Reader output must use pivot=True.
+    Parameters
+    ----------
+    df : polars.DataFrame or polars.LazyFrame
+        Wide observations with time, station and prn. Time must be
+        timezone-aware UTC or timezone-naive GPS, unique per station/PRN.
+        Reader inputs require pivot=True. Missing LLI is accepted but
+        supplies no recorded loss-of-lock or half-cycle information.
+    header : RinexObsHeader
+        Version, sampling and receiver/event metadata. Existing rx_lat and
+        rx_lon columns take precedence over the header position.
+    bias_fn : str, Path, iterable of str or Path, or None, default None
+        Optional DCB products. Without them, retained TEC is uncorrected;
+        hiding calibration_status does not imply complete calibration.
+    config : TECConfig or None, default None
+        Configuration; None constructs TECConfig(). Output selection
+        follows retain_diagnostics without changing QC/calibration.
+    nav_fn : str, Path, iterable of str or Path, or None, default None
+        Navigation files for raw-observation geometry, required unless
+        azimuth and elevation are already present in degrees.
 
-    Returns:
-        pl.LazyFrame: A LazyFrame containing the calculated TEC values.
+    Returns
+    -------
+    polars.LazyFrame
+        UTC epochs, identifiers, receiver/IPP coordinates in degrees,
+        azimuth/elevation in degrees, selected codes and TEC in TECU.
+        Default/selected diagnostics return accepted rows. Complete
+        diagnostics also retains rejected rows with null public TEC.
+        Internal leveling/weight/bias-interval fields are never returned.
+
+    Raises
+    ------
+    TypeError
+        If time is not a Polars Datetime.
+    ValueError
+        If required columns, time scale/uniqueness, RINEX version or
+        sampling cadence are invalid, or requested bias semantics fail.
     """
     if config is None:
         config = TECConfig()
-    keep_all = config.retain_intermediate == "all"
-    retained = (
-        {config.retain_intermediate}
-        if isinstance(config.retain_intermediate, str)
-        else set(config.retain_intermediate or ())
-    )
+    keep_all = config.retain_diagnostics == "all"
+    retained = set() if keep_all else set(config.retain_diagnostics or ())
     input_lf = df.lazy()
     _require_columns(input_lf, ["time", "station", "prn"], "calc_tec_from_df")
     input_schema = input_lf.collect_schema()
@@ -397,14 +416,6 @@ def calc_tec_from_df(
             pl.lit(False).alias("_level_key"),
             pl.lit(0.0).alias("_code_bias"),
         )
-    if keep_all or "level_id" in retained:
-        # Reserve the existing public column position; format interval IDs later.
-        lf = lf.with_columns(
-            pl.lit(
-                None if bias_fn is not None else "no_bias_product", dtype=pl.String
-            ).alias("level_id")
-        )
-
     # Calibrate the code reference BEFORE leveling. Physical arcs are independent
     # of bias validity intervals, which delimit separate leveling estimates.
     lf = (
@@ -458,35 +469,6 @@ def calc_tec_from_df(
             (pl.col("_leveled") + pl.col("_code_bias")).alias("stec")
         )
     )
-    if bias_fn is not None and (keep_all or "level_id" in retained):
-        # Format each distinct public interval ID once, preserving its string form.
-        interval_keys = [*interval_cols, "_bias_available"]
-        levels = (
-            lf.select(*interval_keys)
-            .unique()
-            .with_columns(
-                pl.concat_str(
-                    *[
-                        pl.col(name).cast(pl.String).fill_null("missing")
-                        for name in interval_cols
-                    ],
-                    pl.col("_bias_available").cast(pl.String),
-                    separator="|",
-                ).alias("_formatted_level_id")
-            )
-        )
-        lf = (
-            lf.join(
-                levels,
-                on=interval_keys,
-                how="left",
-                nulls_equal=True,
-                validate="m:1",
-                maintain_order="left",
-            )
-            .with_columns(pl.col("_formatted_level_id").alias("level_id"))
-            .drop("_formatted_level_id")
-        )
     if bias_fn is not None:
         if config.rx_bias in {"mstd", "lsq"}:
             # The solver sees only valid rows; join estimates back for diagnostics.
@@ -546,34 +528,6 @@ def calc_tec_from_df(
         for name in ("stec", "vtec", "stec_dcb_corrected")
         if name in lf.collect_schema()
     )
-    intermediate_cols = {
-        "azimuth",
-        "elevation",
-        "C1_freq",
-        "C2_freq",
-        "mf",
-        "stec_g",
-        "stec_p",
-        "stec_p_raw",
-        "stec_g_corrected",
-        "arc_id",
-        "level_id",
-        "offset",
-        "weight",
-        "mw",
-        "C1_val",
-        "C2_val",
-        "L1_val",
-        "L2_val",
-        "S1",
-        "S2",
-        "tx_bias",
-        "rx_bias",
-        "tx_bias_start",
-        "tx_bias_end",
-        "rx_bias_start",
-        "rx_bias_end",
-    }
     private_cols = [
         name
         for name in lf.collect_schema().names()
@@ -581,12 +535,12 @@ def calc_tec_from_df(
     ]
     lf = lf.drop(private_cols)
 
-    lf = lf.drop("_leap_seconds")
+    lf = lf.drop("_leap_seconds", *INTERNAL_COLUMNS, strict=False)
 
     if not keep_all:
         lf = lf.filter(pl.col("qc_valid"))
         cols_available = set(lf.collect_schema().names())
-        cols_to_drop = cols_available.intersection(intermediate_cols) - retained
+        cols_to_drop = cols_available.intersection(DIAGNOSTIC_COLUMNS) - retained
         lf = lf.drop(cols_to_drop)
 
     # Filters, group-to-row windows and receiver-bias joins preserve the arc sort.
@@ -612,24 +566,32 @@ def calc_tec_from_parquet(
     *,
     nav_fn: str | Path | Iterable[str | Path] | None = None,
 ) -> pl.LazyFrame:
-    """
-    Calculate the Total Electron Content (TEC) from a Parquet file containing GNSS
-    observations. Make sure the Parquet file contains necessary metadata such as
-    sampling interval and receiver geodetic coordinates.
+    """Calculate TEC from stored wide observations and RINEX metadata.
 
-    Args:
-        parquet_fn (str | Path): Path to the Parquet file.
-        bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
-            bias file(s). If provided, DCB biases will be applied to the TEC
-            calculation. Defaults to None.
-        config (TECConfig, optional): Configuration parameters for TEC calculation.
-            Defaults to TECConfig().
-        nav_fn (str | Path | Iterable[str | Path] | None, optional): Navigation
-            file(s) for raw observations saved with header.to_metadata(). Required
-            unless the stored observations already contain azimuth and elevation.
+    Parameters
+    ----------
+    parquet_fn : str or Path
+        Parquet file saved with header.to_metadata(), including sampling
+        interval and receiver coordinates. Missing LLI is accepted but
+        cannot supply recorded lock/half-cycle QC.
+    bias_fn : str, Path, iterable of str or Path, or None, default None
+        Optional DCB products; without them TEC remains uncorrected.
+    config : TECConfig or None, default None
+        Configuration; None constructs TECConfig().
+    nav_fn : str, Path, iterable of str or Path, or None, default None
+        Navigation files, required unless stored azimuth/elevation exist.
 
-    Returns:
-        pl.LazyFrame: A LazyFrame containing the calculated TEC values.
+    Returns
+    -------
+    polars.LazyFrame
+        TEC in TECU and geometry in degrees with UTC epochs. Column/row
+        selection follows calc_tec_from_df and retain_diagnostics.
+
+    Raises
+    ------
+    ValueError
+        If required RINEX metadata are missing or observation/bias
+        constraints in calc_tec_from_df are violated.
     """
     lf = pl.scan_parquet(parquet_fn)
     metadata = pl.read_parquet_metadata(parquet_fn)
@@ -646,28 +608,40 @@ def calc_tec_from_rinex(
     *,
     station: str | None = None,
 ) -> pl.LazyFrame:
-    """
-    Calculate the Total Electron Content (TEC) from RINEX observation and navigation
-    files.
+    """Calculate TEC from RINEX observations and navigation files.
 
-    Args:
-        obs_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX observation
-            file(s). These files must be from the same station.
-        nav_fn (str | Path | Iterable[str | Path]): Path(s) to the RINEX navigation
-            file(s).
-        bias_fn (str | Path | Iterable[str | Path] | None, optional): Path(s) to the
-            bias file(s). If provided, DCB biases will be applied to the TEC
-            calculation. Defaults to None.
-        config (TECConfig, optional): Configuration parameters for TEC calculation.
-            Defaults to TECConfig().
-        station (str | None, optional): Custom station name to assign to the data. If
-            None, the station name from the RINEX header is used. Defaults to None.
+    Parameters
+    ----------
+    obs_fn : str, Path, or iterable of str or Path
+        Observation files from the same station and RINEX major version.
+        The reader explicitly enables LLI for recorded lock/half-cycle QC.
+    nav_fn : str, Path, or iterable of str or Path
+        Navigation files for satellite propagation and receiver geometry.
+    bias_fn : str, Path, iterable of str or Path, or None, default None
+        Optional DCB products; without them TEC remains uncorrected.
+    config : TECConfig or None, default None
+        Configuration; None constructs TECConfig().
+    station : str or None, default None
+        Override the station identifier; None uses the observation header.
 
-    Returns:
-        pl.LazyFrame: A LazyFrame containing the calculated TEC values.
+    Returns
+    -------
+    polars.LazyFrame
+        TEC in TECU and geometry in degrees with UTC epochs. Column/row
+        selection follows calc_tec_from_df and retain_diagnostics; LLI
+        still contributes to QC when omitted from the final output.
+
+    Raises
+    ------
+    FileNotFoundError
+        If an observation file does not exist.
+    ValueError
+        If reader or TEC input/bias constraints are violated.
     """
     if config is None:
         config = TECConfig()
-    header, lf = read_rinex_obs(obs_fn, config.constellations, station=station)
+    header, lf = read_rinex_obs(
+        obs_fn, config.constellations, station=station, include_lli=True
+    )
 
     return calc_tec_from_df(lf, header, bias_fn, config, nav_fn=nav_fn)

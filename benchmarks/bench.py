@@ -5,6 +5,7 @@ TEC-only uses resident observations and geometry. Sizes describe on-disk observa
 files, excluding navigation and bias files. RINEX 2 uses no DCB correction because
 the supplied CAS files lack matching C1/C2 biases; RINEX 3 uses external CAS DCBs.
 Engines run serially in alternating order, with result comparisons outside timing.
+TEC stages retain LLI for recorded loss-of-lock and half-cycle quality control.
 """
 
 import argparse
@@ -41,7 +42,7 @@ def read_observations(obs: list[Path], engine: Engine) -> pl.DataFrame:
 def calculate(
     obs: list[Path], nav: list[Path], bias: list[Path] | None, engine: Engine
 ) -> pl.DataFrame:
-    header, lf = gt.read_rinex_obs(obs)
+    header, lf = gt.read_rinex_obs(obs, include_lli=True)
     return gt.calc_tec_from_df(lf, header, bias, nav_fn=nav).collect(engine=engine)
 
 
@@ -237,7 +238,7 @@ def main() -> None:
                 operation = partial(calculate, obs, nav, bias)
             else:
                 # Both engines calculate TEC from exactly the same resident data.
-                header, lf = gt.read_rinex_obs(obs)
+                header, lf = gt.read_rinex_obs(obs, include_lli=True)
                 cached_df = (
                     _prepare_observations(lf, header, pl.col("time"), nav)
                     .select(

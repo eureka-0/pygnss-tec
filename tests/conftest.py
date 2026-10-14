@@ -68,7 +68,10 @@ def bias_gfz(test_data_dir):
 @fixture(scope="module")
 def small_observations(short_rinex_v3, rinex_nav_v3):
     header, lf = gt.read_rinex_obs(
-        short_rinex_v3, constellations="CG", codes=OBSERVATION_CODES["3"]
+        short_rinex_v3,
+        constellations="CG",
+        codes=OBSERVATION_CODES["3"],
+        include_lli=True,
     )
     return header, collect_short_windows(lf)
 

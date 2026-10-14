@@ -202,14 +202,26 @@ def prepare_code_bias(lf: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def read_bias(fn: str | Path | Iterable[str | Path]) -> pl.LazyFrame:
-    """
-    Read GNSS DCB bias files into a Polars DataFrame.
+    """Read GNSS bias products into a lazy table.
 
-    Args:
-        fn (str | Path | Iterable[str | Path]): Path(s) to the bias file(s).
+    Parameters
+    ----------
+    fn : str, Path, or iterable of str or Path
+        Bias product files, including supported compressed inputs.
 
-    Returns:
-        pl.LazyFrame: A LazyFrame containing the bias data.
+    Returns
+    -------
+    polars.LazyFrame
+        Decoded bias records and product metadata. TEC code-bias
+        preparation separately validates DSB/ns/GPS semantics and
+        half-open validity intervals before applying corrections.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a bias file does not exist.
+    TypeError
+        If fn is not a path or iterable of paths.
     """
     if isinstance(fn, (str, Path)):
         fn_list = [str(fn)]
@@ -228,16 +240,30 @@ def read_bias(fn: str | Path | Iterable[str | Path]) -> pl.LazyFrame:
 def estimate_rx_bias(
     df: pl.DataFrame | pl.LazyFrame, method: Literal["mstd", "lsq"], downsample: bool
 ) -> pl.LazyFrame:
-    """
-    Estimate receiver bias in sTEC measurements.
+    """Estimate receiver code bias after satellite correction.
 
-    Args:
-        df (pl.DataFrame | pl.LazyFrame): Input DataFrame containing sTEC measurements.
-        method (Literal["mstd", "lsq"]): Method for bias correction.
-        downsample (bool): Whether to downsample the data before estimation.
+    Parameters
+    ----------
+    df : polars.DataFrame or polars.LazyFrame
+        Sorted TEC measurements with satellite bias, geometry, mapping
+        factors and selected code pairs. Invalid rows cannot contribute
+        to calibration.
+    method : {'mstd', 'lsq'}
+        Minimum standard deviation or least squares estimation.
+    downsample : bool
+        Use the first observation in each 30-second station/PRN bin for
+        estimation, joining estimates back to the original observations.
 
-    Returns:
-        pl.LazyFrame: LazyFrame with receiver bias estimates added, in TECU.
+    Returns
+    -------
+    polars.LazyFrame
+        Input measurements with rx_bias in TECU. Failed or unsupported
+        estimates remain null rather than becoming zero corrections.
+
+    Raises
+    ------
+    ValueError
+        If method is unknown.
     """
     match method:
         case "mstd":

@@ -48,6 +48,7 @@ LEAP_SECONDS = [
 
 
 def get_leap_seconds(time_col: pl.Expr | str) -> pl.Expr:
+    """Return a nanosecond leap-second duration expression for GPS epochs."""
     if isinstance(time_col, str):
         time_col = pl.col(time_col)
     time_col = time_col.dt.replace_time_zone(None)
@@ -260,32 +261,60 @@ def read_rinex_obs(
     utc: bool = True,
     station: str | None = None,
     pivot: bool = True,
+    include_lli: bool = False,
 ) -> tuple[RinexObsHeader, pl.LazyFrame]:
-    """Decode RINEX observation values and original quality indicators.
+    """Decode raw RINEX observations with optional lock indicators.
 
-    Args:
-        obs_fn: Observation file(s) from one station and one RINEX major version.
-        constellations: Constellation letters to include; None includes all.
-        codes: One Python regular expression or an iterable of expressions. Each
-            expression must match an entire observation code. Exact codes still
-            work, e.g. ["C1C", "L1C"]; "[CL]1.*" selects code and phase on band 1.
-            None includes all available codes; no matches produce an empty frame.
-        utc: Return UTC epochs, or timezone-naive GPS epochs when False.
-        station: Override the station identifier from the header.
-        pivot: True returns observation columns and their <code>_lli indicators.
-            False returns code, value and lli columns, one row per observation.
+    Parameters
+    ----------
+    obs_fn : str, Path, or iterable of str or Path
+        Observation files from one station and RINEX major version (2/3).
+        RINEX, Hatanaka and supported compressed files are accepted.
+    constellations : str or None, default None
+        Constellation letters to include; None includes all supported ones.
+    codes : str, iterable of str, or None, default None
+        Case-sensitive Python regular expressions matching whole observation
+        codes. Literal codes such as ["C1C", "L1C"] work; "[CL]1.*" selects
+        code/phase on band 1. None includes all codes; no matches produce
+        an empty frame.
+    utc : bool, default True
+        Return UTC epochs; False returns timezone-naive GPS epochs.
+    station : str or None, default None
+        Override the station identifier derived from the header.
+    pivot : bool, default True
+        Return one column per observation code. False returns code/value
+        columns with one row per observation.
+    include_lli : bool, default False
+        Extract and emit all selected observations' raw lock indicators:
+        <code>_lli in wide output or lli in long output. UInt8 values and
+        missing indicators (null) retain their version-specific meaning.
+        False omits native LLI buffers/columns. Epoch flags, observations,
+        time and retained event metadata are independent of this switch.
 
-    Returns:
-        Header metadata and a LazyFrame containing time, station, prn, the
-        original observation values/LLI and epoch_flag. Values use Float64;
-        derived geometry and TEC state are computed only by the TEC functions.
-        Per-file positions, receiver identities and raw event records remain in
-        header metadata, including when the observations are saved as Parquet.
+    Returns
+    -------
+    header : RinexObsHeader
+        Header metadata including per-file positions/receiver identities and
+        timestamped event records, preserved by header.to_metadata().
+    observations : polars.LazyFrame
+        Nanosecond time, station/prn, Float64 observations in RINEX units,
+        epoch_flag and optional UInt8/null LLI. Geometry and TEC state are
+        prepared by the TEC functions. Parsing completes before return.
 
-    Raises:
-        FileNotFoundError: An observation file does not exist.
-        ValueError: Invalid code expression, unknown constellation, or files from
-            different stations, RINEX major versions or inconsistent GPS scales.
+    Raises
+    ------
+    FileNotFoundError
+        If an observation file does not exist.
+    ValueError
+        If code expressions/constellations are invalid, or files mix
+        stations, RINEX major versions or inconsistent GPS scales.
+
+    Notes
+    -----
+    Request include_lli=True before DataFrame/Parquet TEC processing when
+    recorded lock/half-cycle QC is intended. Absent LLI cannot be
+    reconstructed. calc_tec_from_rinex opts in automatically. This option
+    does not reduce source-file I/O or upstream inline-indicator parsing.
     """
     obs_fn_list = _handle_fn(obs_fn)
     observation_codes = (
@@ -302,7 +331,14 @@ def read_rinex_obs(
 
     if len(obs_fn_list) > 1:
         parts = [
-            read_rinex_obs(fn, constellations, observation_codes, utc=utc, pivot=pivot)
+            read_rinex_obs(
+                fn,
+                constellations,
+                observation_codes,
+                utc=utc,
+                pivot=pivot,
+                include_lli=include_lli,
+            )
             for fn in obs_fn_list
         ]
         headers = [header for header, _ in parts]
@@ -352,7 +388,7 @@ def read_rinex_obs(
         )
 
     header_dict, batch = _read_obs(
-        obs_fn_list, constellations, observation_codes, pivot
+        obs_fn_list, constellations, observation_codes, pivot, include_lli
     )
     rx_ecef = (header_dict["rx_x"], header_dict["rx_y"], header_dict["rx_z"])
     rx_lat, rx_lon, rx_alt = _ecef_to_geodetic(*rx_ecef)
@@ -377,7 +413,7 @@ def read_rinex_obs(
         sorted(name for name in frame.columns if _match_code(name))
         + sorted(name for name in frame.columns if name.endswith("_lli"))
         if pivot
-        else ["code", "value", "lli"]
+        else ["code", "value"] + (["lli"] if include_lli else [])
     )
     lf = (
         frame.lazy()
