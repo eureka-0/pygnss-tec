@@ -6,11 +6,12 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 
 ## Current Focus
 
-- **Main goal:** resolve R01–R04 and make LLI output optional without weakening the RINEX-to-TEC QC path (T027).
+- **Main goal:** deliver the agreed reader/TEC output contract (T027–T029) while preserving QC and calibration behavior; resolve the outstanding R01–R04 findings.
 - **Underway:** no task is currently in progress.
-- **Confirmed scope:** skip special events with blank epoch fields (R03); expose all selected LLI columns only with `include_lli=True`, defaulting to `False` (T027). RINEX-to-TEC explicitly enables LLI.
+- **Next implementation run:** complete T027, T028 and T029 together: optional LLI, simpler TEC/diagnostic outputs with `retain_diagnostics`, synchronized README examples and NumPy-style Python docstrings with complete TECConfig hover documentation. This is a user-selected delivery group, not a technical dependency chain.
+- **Reader policy:** skip special events with blank epoch fields (R03); `include_lli=False` omits selected LLI columns (T027), while RINEX-to-TEC explicitly enables LLI.
 - **Open decisions:** R04 needs timestamped event/reset classification. R05 will evaluate rolling GF/MW detection, its TEC accuracy and runtime tradeoff, and small-slip sensitivity. T005 will explore high-performance kernels; the default remains basic QC pending validation and review.
-- **Next:** R01, then R02 when authorized; R03 and T027 also have defined scopes and can proceed independently. T001's benchmark design and T024's compatibility/coverage inventory can also be planned independently.
+- **After that:** R01, then R02 are the recommended correctness fixes; R03 can proceed independently. R04 needs event/reset classification before implementation.
 
 ## Milestones
 
@@ -18,10 +19,10 @@ Milestones group verifiable outcomes across workstreams; related task lists do n
 
 | Milestone | Capability / delivery | Verifiable completion conditions | Related tasks |
 |---|---|---|---|
-| M1 — Scientific Reliability | Trustworthy observations, ambiguity state and calibration/QC meaning | Existing regressions and R01/R02/R04 counterexamples pass; blank-epoch events are skipped without disrupting timestamped records, and optional LLI output preserves the RINEX-to-TEC QC path; small-slip misses/false positives are quantified; receiver-estimation degeneracies and leveling outliers are handled; published calibration/QC status cannot turn unsupported or failed calibration into a zero correction. Geometry/navigation assumptions are explicit and independently checked. | R01–R05, T006–T009, T015, T027 |
+| M1 — Scientific Reliability | Trustworthy observations, ambiguity state and calibration/QC meaning | Existing regressions and R01/R02/R04 counterexamples pass; blank-epoch events are skipped without disrupting timestamped records, and reader/output options preserve QC and calibration behavior; small-slip misses/false positives are quantified; receiver-estimation degeneracies and leveling outliers are handled; documented product/diagnostic meaning cannot turn unsupported or failed calibration into a zero correction. Geometry/navigation assumptions are explicit and independently checked. | R01–R05, T006–T009, T015, T027–T028 |
 | M2 — Scalable Processing | Measured, scientifically equivalent processing across input sizes | Repeatable stage and isolated-process RSS baselines cover 1/30 s, single/multiple days and multiple stations. Report throughput, RSS, retention/QC changes and independent scientific residuals together; demonstrate bounded input memory without chunk-boundary TEC steps and measured optimization gains. Set regression budgets from stable measurements; a Polars engine switch alone does not qualify as streaming input. | T001–T005, T010 |
 | M3 — Extended GNSS & Product Support | Explicit supported signal modes and reproducible external/derived products | Each released signal pair has frequency/phase/bias tests and independent known-TEC/orbit references, including FDMA channels and BDS GEO/IGSO where advertised. Bias retrieval avoids overlap/datum mixing; IONEX comparisons preserve map semantics; derived indices enforce sampling and arc requirements. | T011–T014, T017 |
-| M4 — Reproducible Workflows & Release Readiness | Traceable user workflows and validated distribution artifacts | Exports preserve units/time/coordinates/QC/calibration metadata; CLI/library results agree. Scientific/error branches and supported compatibility jobs are checked; scientific examples document assumptions and reproduce outputs. Publishing waits for successful clean installation and minimal RINEX-to-TEC checks of the actual artifacts, with free-threaded artifacts exercised separately. | T018–T022, T024–T026 |
+| M4 — Reproducible Workflows & Release Readiness | Traceable user workflows and validated distribution artifacts | Exports preserve units/time/coordinates/QC/calibration metadata; CLI/library results agree. Scientific/error branches and supported compatibility jobs are checked; scientific examples document assumptions and reproduce outputs, and Python docstrings follow NumPy conventions. Publishing waits for successful clean installation and minimal RINEX-to-TEC checks of the actual artifacts, with free-threaded artifacts exercised separately. | T018–T022, T024–T026, T029 |
 
 ## Active Tasks
 
@@ -72,6 +73,7 @@ These tables are the authority for active task priority, status and dependencies
 | T018 | Standardize export metadata and add Xarray/NetCDF | P2 | backlog | — | [Plan](docs/tasks/T018.md) |
 | T019 | Add a CLI that delegates to the library | P2 | backlog | — | [Plan](docs/tasks/T019.md) |
 | T027 | Make LLI output optional in RINEX observation reads | P2 | ready | — | [Plan](docs/tasks/T027.md) |
+| T028 | Simplify TEC output and diagnostic columns | P2 | ready | — | [Plan](docs/tasks/T028.md) |
 
 ### Engineering & Release
 
@@ -83,6 +85,7 @@ These tables are the authority for active task priority, status and dependencies
 | T024 | Measure coverage and maintain compatibility matrices | P3 | backlog | — | [Scope & acceptance](#t024-measure-coverage-and-maintain-compatibility-matrices) |
 | T025 | Gate publishing on installed-artifact validation | P3 | backlog | — | [Plan](docs/tasks/T025.md) |
 | T026 | Document scientific assumptions and operating limits | P3 | backlog | — | [Scope & acceptance](#t026-document-scientific-assumptions-and-operating-limits) |
+| T029 | Migrate Python docstrings to NumPy style | P3 | ready | — | [Scope & acceptance](#t029-migrate-python-docstrings-to-numpy-style) |
 
 ### Inline task specifications
 
@@ -124,7 +127,17 @@ Before starting, inspect current CI/dependency groups, select coverage reporting
 
 **Acceptance and validation:** examples produce traceable products without relying on hidden defaults.
 
-Before starting, inventory undocumented contracts against the current implementation and completed task evidence. Re-run the exact affected examples and preserve native output; cite dated memory/performance measurements with their input and environment limits.
+Before starting, inventory undocumented contracts against the current implementation and completed task evidence. Re-run the exact affected examples and preserve native output; cite dated memory/performance measurements with their input and environment limits. T029 owns docstring formatting; this task owns the broader scientific guidance.
+
+#### T029: Migrate Python docstrings to NumPy style
+
+**Scope and approach:** Python docstrings in `gnss_tec/`, including reader/TEC APIs, mapping/bias utilities and configuration classes. Inventory existing documentation, then replace Google-style sections with NumPy-style `Parameters`, `Returns`/`Yields`, `Raises` and `Attributes` where applicable. Keep concise one-line docstrings for simple helpers; do not add empty sections or expand undocumented private helpers solely for uniformity. Follow the [numpydoc style guide](https://numpydoc.readthedocs.io/en/latest/format.html) without adding a documentation framework or dependency.
+
+**TECConfig hover contract:** add a complete class docstring covering all constructor parameters, types, effective defaults, units, allowed values and validation constraints. Explain observation-code mapping/priority defaults, receiver-bias and missing-bias behavior, mapping models and all `retain_diagnostics` modes, including selectable `mw` and unavailable internal columns. Document the frozen, keyword-only configuration and public properties/methods with their units and return meanings. Keep field-level documentation discoverable on instance-attribute hover as well as class/constructor hover; class documentation alone is insufficient. Preserve Python 3.12 compatibility and avoid runtime wrappers or new dependencies solely to expose documentation.
+
+**Acceptance and validation:** documented parameter names, defaults, return types, units, supported inputs and exceptions match current signatures and the T027/T028 contracts. Existing scientific qualifications and examples survive the conversion. Inspect structured package docstrings for leftover Google-style sections, run applicable existing lint/format checks and re-run affected executable examples. Inspect actual hover text in the available editor/language service for `TECConfig`, a constructor keyword, an instance field and a public property; verify readable formatting and complete field descriptions. If hover inspection is unavailable, report that limit rather than claiming it verified. No runtime or algorithm changes belong to this formatting task.
+
+**Next:** migrate the reader and TEC/configuration docstrings alongside T027/T028, then convert the remaining structured package docstrings. Add a concise NumPy-style convention to AGENTS.md during implementation. Complete all three tasks in the next implementation run; their coordination does not create a hard dependency.
 
 ## Recently Completed
 
