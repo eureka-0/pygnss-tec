@@ -8,10 +8,10 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 
 - **Main goal:** resolve the outstanding R01–R04 findings while preserving the delivered reader/TEC output contract and basic QC/calibration behavior.
 - **Underway:** no task is currently in progress.
-- **Delivered:** T023 reorganized the Python package into `io`, `signals`, `calibration` and `calculation` with unchanged function definitions and verified outputs. T027, T028 and T029 delivered optional native LLI, `retain_diagnostics`, default satellite geometry, synchronized README output and NumPy-style docstrings. See Recently Completed.
-- **Next implementation run:** R01, then R02 are the recommended correctness fixes; R03 can proceed independently. R04 needs event/reset classification before implementation.
+- **Delivered:** T023 and T027–T029 are recorded in [history](docs/roadmap-history.md#completed-engineering-and-api-tasks).
+- **Next implementation run:** execute R01–R04 as the user-selected scope. R01–R03 have defined implementation scopes; begin R04 with event/reset classification and obtain its required review before dependent changes.
 - **Reader policy:** `include_lli=False` omits selected LLI columns, while RINEX-to-TEC explicitly enables LLI. Skipping special events with blank epoch fields remains pending under R03.
-- **Open decisions:** R04 needs timestamped event/reset classification. R05 will evaluate rolling GF/MW detection, its TEC accuracy and runtime tradeoff, and small-slip sensitivity. T005 will explore high-performance kernels; the default remains basic QC pending validation and review.
+- **Open decisions:** R04 needs timestamped event/reset classification. R05's independent-truth detection study can be planned now, alongside T005's native-kernel work; production integration/default changes require validation and review. These tasks preserve raw phase and do not schedule numerical ambiguity repair. The default remains basic QC.
 
 ## Milestones
 
@@ -87,7 +87,7 @@ These tables are the authority for active task priority, status and dependencies
 
 #### R01: Keep cycle-slip event records out of observation values
 
-**Scope and approach:** `src/lib.rs`, `src/quality.rs`, `tests/test_rinex_quality.py`. Separate flag-6 payloads from normal observations in both layouts and retain timestamped events under R03's policy. Exclusion of event payloads from observations must not depend on LLI output being enabled.
+**Scope and approach:** `src/observations.rs`, `src/quality.rs`, `tests/test_rinex_quality.py`. Separate flag-6 payloads from normal observations in both layouts and retain timestamped events under R03's policy. Exclusion of event payloads from observations must not depend on LLI output being enabled.
 
 **Acceptance and validation:** a same-epoch flag-6 L1 slip count of 5 never replaces the normal 110355719.242-cycle observation or creates duplicate observation keys. The epoch/SV overwrite mechanism predates this change set.
 
@@ -95,7 +95,7 @@ Reproduce the same-epoch collision, separate event payload ingestion, and verify
 
 #### R02: Prefer usable signal pairs before applying priorities
 
-**Scope and approach:** `gnss_tec/tec/signals.py`, `tests/test_observation_quality.py`. Include phase validity and the existing SNR policy in candidate eligibility; preserve diagnostics when no candidate is usable.
+**Scope and approach:** `gnss_tec/signals/selection.py`, `src/selection.rs`, `tests/test_observation_quality.py`. Include phase validity and the existing SNR policy in candidate eligibility; preserve diagnostics when no candidate is usable.
 
 **Acceptance and validation:** invalid-half-cycle C1W/L1W falls back to valid C1C/L1C, retaining all 20 synthetic epochs; loss-of-lock alone remains an arc boundary, not automatic sample rejection.
 
@@ -123,16 +123,11 @@ Before starting, inspect current CI/dependency groups, select coverage reporting
 
 **Acceptance and validation:** examples produce traceable products without relying on hidden defaults.
 
-Before starting, inventory undocumented contracts against the current implementation and completed task evidence. Re-run the exact affected examples and preserve native output; cite dated memory/performance measurements with their input and environment limits. T029 owns docstring formatting; this task owns the broader scientific guidance.
+Before starting, inventory undocumented contracts against the current implementation and completed task evidence. Re-run the exact affected examples and preserve native output; cite dated memory/performance measurements with their input and environment limits. Follow the NumPy-style convention delivered by T029; this task owns the broader scientific guidance.
 
 ## Recently Completed
 
-| ID | Task | Priority | Status | Dependencies | Completed | Outcome |
-|---|---|---|---|---|---|---|
-| T023 | Extract focused modules behind compatible entry points | P3 | done | — | 2026-10-15 | Approved package layout implemented; six common exports retained, old deep-import paths removed as requested. Function definitions, scientific outputs and installed wheel verified. [Record](docs/tasks/T023.md) |
-| T027 | Make LLI output optional in RINEX observation reads | P2 | done | — | 2026-10-14 | Native/Python wide and long output defaults omit LLI; RINEX-to-TEC explicitly opts in. [Record](docs/tasks/T027.md) |
-| T028 | Simplify TEC output and diagnostic columns | P2 | done | — | 2026-10-14 | `retain_diagnostics` replaces the old option; geometry is always public, diagnostics are selectable and leveling/bias state remains private. [Record](docs/tasks/T028.md) |
-| T029 | Migrate Python docstrings to NumPy style | P3 | done | — | 2026-10-14 | Package sections, TECConfig class/field/method documentation and AGENTS.md convention updated; actual ty hover inspected with its keyword-doc limitation recorded. [Record](docs/tasks/T029.md) |
+No recent entries. Completed deliveries are in [history](docs/roadmap-history.md).
 
 ## Conventions
 
@@ -143,4 +138,4 @@ Before starting, inventory undocumented contracts against the current implementa
 - **Dependencies:** record only actual task prerequisites by ID, or `—` for none. General relationships and recommended order are not hard dependencies; confirm uncertain prerequisites before promoting a task to ready.
 - **Plans and recovery:** use `docs/tasks/<ID>.md` only for complex work. Implementation Plans are proposals until required review is complete. Record facts, design choices and hypotheses distinctly. Progress & Handoff holds implemented changes, acceptance progress, open issues, next action and constraints.
 - **Completion:** verify every acceptance criterion before `done` and retain a concise completion summary. Keep scientific validation evidence in tests, benchmarks or technical reports, outside task records. Necessary tests and documentation accompany the affected change.
-- **Lifecycle:** move completed tasks to Recently Completed with ID/title, known completion date and a brief outcome; archive older entries in [history](docs/roadmap-history.md), retaining priority, dependencies and `done` there. Keep useful task files. Track follow-up problems separately from completed work.
+- **Lifecycle:** move completed tasks to Recently Completed with ID/title, known completion date and a brief outcome; archive older entries in [history](docs/roadmap-history.md), retaining priority, dependencies, `done`, known limits and commit references there. Remove archived task files and update incoming links; recover detailed plans from Git history. Track follow-up problems separately from completed work.

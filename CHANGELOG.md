@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Preserve raw carrier phase and handle recorded lock/event/gap evidence with
+  arc segmentation and separate leveling instead of automatic phase-jump
+  flattening. Rolling GF/MW detection is disabled pending evaluation; unflagged
+  phase jumps are not automatically detected or numerically repaired.
 - Reorganize Python modules into `io`, `signals`, `calibration` and
   `calculation`, with shared `configuration.py`, physical constants and Arrow
   adaptation at package level. Remove `gnss_tec.tec.*` and `gnss_tec.rinex.*`
