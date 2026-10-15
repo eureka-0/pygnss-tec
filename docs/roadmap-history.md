@@ -27,3 +27,16 @@ Commit IDs identify the delivered changes; regression details and former task fi
 | T028 | Simplify TEC output and diagnostic columns | P2 | done | — | 2026-10-14 | `retain_diagnostics` replaces the old option; geometry is always public, diagnostics are selectable and leveling/bias state remains private. Commit `992a7e9`. |
 | T029 | Migrate Python docstrings to NumPy style | P3 | done | — | 2026-10-14 | Package/TECConfig docstrings and AGENTS.md convention updated. Class/field hover exposes descriptions; constructor-keyword hover remains limited to type/default. Commit `992a7e9`. |
 | T023 | Extract focused modules behind compatible entry points | P3 | done | — | 2026-10-15 | Approved `io`/`signals`/`calibration`/`calculation` layout implemented; six common exports retained and old deep-import paths removed without aliases. Commit `98c849c`. |
+
+## Completed Reader and Observation-QC Tasks
+
+Delivered in commit `d7dbbcb`. Permanent regressions remain in the reader/event, signal-selection and physical-arc tests; detailed plans are recoverable from that commit.
+
+| ID | Task | Priority | Status | Dependencies | Completed | Outcome |
+|---|---|---|---|---|---|---|
+| R01 | Keep cycle-slip event records out of observation values | P1 | done | — | 2026-10-15 | Flag-6 payloads remain metadata; normal values and unique keys survive in both layouts and LLI modes. |
+| R02 | Prefer usable signal pairs before applying priorities | P2 | done | — | 2026-10-15 | Half-cycle/SNR eligibility precedes ranking; changed groups can restore null-SNR candidates, with cycle protection and no-usable-pair diagnostics. |
+| R03 | Skip special events with blank epoch fields | P2 | done | — | 2026-10-15 | Untimed blocks are consumed without timestamps/state across supported inputs; standalone COMMENT records remain readable, including text beginning with `>`. |
+| R04 | Distinguish metadata events from ambiguity resets | P2 | done | — | 2026-10-15 | Reviewed classification preserves metadata-event continuity and true-reset boundaries without rewriting phase; explicit receiver state remains authoritative. |
+
+The [reader/event policy](../README.md#observation-quality-and-scientific-conventions) documents conservative resets and retained metadata. Applying new event-header values to observations/geometry and per-satellite flag-6 interpretation remain outside this delivery. The existing grouped missing-SNR policy is preserved; broader policy changes belong to T007. GF/MW detection and numerical phase repair were not implemented by these fixes.

@@ -6,12 +6,14 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 
 ## Current Focus
 
-- **Main goal:** preserve the delivered reader/TEC contracts while addressing the remaining M1 scientific validation and reliability work.
+- **Main goal:** develop independently validated cycle-slip detection and integer repair while preserving raw observations and completing the remaining M1 reliability work.
 - **Underway:** no task is currently in progress.
-- **Delivered:** the user-selected R01–R04 run is complete; see [Recently Completed](#recently-completed) and its permanent acceptance tests. T023 and T027–T029 are recorded in [history](docs/roadmap-history.md#completed-engineering-and-api-tasks).
-- **Next implementation run:** not selected. Completing R01–R04 does not authorize additional tasks or close M1.
+- **Delivered:** R01–R04 are recorded in [history](docs/roadmap-history.md#completed-reader-and-observation-qc-tasks), alongside the earlier deliveries. M1 still has open scientific/reliability requirements.
+- **Proposed next round:** R05 supplies the reviewed detector/reference study and T030 supplies integer ambiguity estimation, derived-phase correction and fallback. Begin with their validation/state/API contracts; T005 optimizes the frozen reference and measures the complete pipeline. T031/T032 separately address time-varying header values and satellite/signal-specific flag-6 evidence.
 - **Reader policy:** `include_lli=False` omits selected LLI columns, while RINEX-to-TEC explicitly enables LLI. Blank-epoch special events are consumed and omitted without inherited timestamps/state; timestamped flag-6 payloads remain metadata rather than observations.
-- **Open decisions:** R04's event/reset classification was reviewed and delivered. R05's independent-truth detection study can be planned alongside T005's native-kernel work; production integration/default changes require validation and review. These tasks preserve raw phase and do not schedule numerical ambiguity repair. The default remains basic QC.
+- **Repair target:** the user selected validated integer repair as the eventual default, with uncertain cases falling back to arc splits. Until T030's reviewed acceptance gates pass, the current default remains basic QC. Raw phases stay unchanged; half-cycle repair is outside the initial scope.
+- **Open decisions:** review the scientific noise/TEC envelope, false-repair criteria, effective continuity/leveling model and API before implementation. T031 needs a supported-header matrix; T032 needs version-aware event targeting and recorded-slip semantics. These tasks remain backlog while the design decisions are unresolved.
+- **Later candidates:** T006's estimator support/degeneracy contract and T007's robust SNR/leveling policy are the next reliability candidates; they do not have hard dependencies on the proposed research round.
 
 ## Milestones
 
@@ -19,7 +21,7 @@ Milestones group verifiable outcomes across workstreams; related task lists do n
 
 | Milestone | Capability / delivery | Verifiable completion conditions | Related tasks |
 |---|---|---|---|
-| M1 — Scientific Reliability | Trustworthy observations, ambiguity state and calibration/QC meaning | Existing regressions and R01/R02/R04 counterexamples pass; blank-epoch events are skipped without disrupting timestamped records, and reader/output options preserve QC and calibration behavior; small-slip misses/false positives are quantified; receiver-estimation degeneracies and leveling outliers are handled; documented product/diagnostic meaning cannot turn unsupported or failed calibration into a zero correction. Geometry/navigation assumptions are explicit and independently checked. | R01–R05, T006–T009, T015, T027–T028 |
+| M1 — Scientific Reliability | Trustworthy observations, ambiguity state and calibration/QC meaning | Existing reader/event regressions remain valid; detection and integer-repair accuracy, false repairs and fallback are independently validated before the approved default transition. Supported timestamped header changes and targeted slip evidence follow reviewed semantics. Receiver-estimation degeneracies and leveling outliers are handled; product/diagnostic meaning cannot turn unsupported or failed calibration into a zero correction. Geometry/navigation assumptions are explicit and independently checked. | R01–R05, T006–T009, T015, T027–T028, T030–T032 |
 | M2 — Scalable Processing | Measured, scientifically equivalent processing across input sizes | Repeatable stage and isolated-process RSS baselines cover 1/30 s, single/multiple days and multiple stations. Report throughput, RSS, retention/QC changes and independent scientific residuals together; demonstrate bounded input memory without chunk-boundary TEC steps and measured optimization gains. Set regression budgets from stable measurements; a Polars engine switch alone does not qualify as streaming input. | T001–T005, T010 |
 | M3 — Extended GNSS & Product Support | Explicit supported signal modes and reproducible external/derived products | Each released signal pair has frequency/phase/bias tests and independent known-TEC/orbit references, including FDMA channels and BDS GEO/IGSO where advertised. Bias retrieval avoids overlap/datum mixing; IONEX comparisons preserve map semantics; derived indices enforce sampling and arc requirements. | T011–T014, T017 |
 | M4 — Reproducible Workflows & Release Readiness | Traceable user workflows and validated distribution artifacts | Exports preserve units/time/coordinates/QC/calibration metadata; CLI/library results agree. Scientific/error branches and supported compatibility jobs are checked; scientific examples document assumptions and reproduce outputs, and Python docstrings follow NumPy conventions. Publishing waits for successful clean installation and minimal RINEX-to-TEC checks of the actual artifacts, with free-threaded artifacts exercised separately. | T018–T022, T024–T026, T029 |
@@ -32,12 +34,13 @@ These tables are the authority for active task priority, status and dependencies
 
 | ID | Task | Priority | Status | Dependencies | Details |
 |---|---|---|---|---|---|
-| R05 | Evaluate GF/MW detection and small-slip sensitivity | P1 | backlog | — | [Plan & measured impact](docs/tasks/R05.md) |
+| R05 | Evaluate GF/MW detection and small-slip sensitivity | P1 | backlog | — | [Study plan](docs/tasks/R05.md) |
 | T006 | Stabilize and accelerate receiver-bias estimation | P1 | backlog | — | [Plan](docs/tasks/T006.md) |
 | T007 | Make SNR filtering and leveling robust | P1 | backlog | — | [Plan](docs/tasks/T007.md) |
 | T008 | Separate geometric IPPs from mapping models | P1 | backlog | — | [Plan](docs/tasks/T008.md) |
 | T009 | Validate navigation selection and merge failures | P1 | backlog | — | [Plan](docs/tasks/T009.md) |
 | T016 | Offer an optional causal Hatch mode | P2 | backlog | — | [Plan](docs/tasks/T016.md) |
+| T030 | Estimate and repair integer cycle slips with fallback | P1 | backlog | R05 | [Plan](docs/tasks/T030.md) |
 
 ### Architecture & Performance
 
@@ -67,6 +70,8 @@ These tables are the authority for active task priority, status and dependencies
 |---|---|---|---|---|---|
 | T018 | Standardize export metadata and add Xarray/NetCDF | P2 | backlog | — | [Plan](docs/tasks/T018.md) |
 | T019 | Add a CLI that delegates to the library | P2 | backlog | — | [Plan](docs/tasks/T019.md) |
+| T031 | Apply timestamped RINEX header updates | P1 | backlog | — | [Plan](docs/tasks/T031.md) |
+| T032 | Interpret flag-6 events by satellite and phase signal | P2 | backlog | T031 | [Plan](docs/tasks/T032.md) |
 
 ### Engineering & Release
 
@@ -107,14 +112,7 @@ Before starting, inventory undocumented contracts against the current implementa
 
 ## Recently Completed
 
-| ID | Task | Priority | Status | Dependencies | Completed | Outcome |
-|---|---|---|---|---|---|---|
-| R01 | Keep cycle-slip event records out of observation values | P1 | done | — | 2026-10-15 | Flag-6 payloads remain metadata; normal values and unique keys survive in both layouts and LLI modes. |
-| R02 | Prefer usable signal pairs before applying priorities | P2 | done | — | 2026-10-15 | Half-cycle/SNR eligibility precedes ranking; changed groups can restore null-SNR candidates, with cycle protection and no-usable-pair diagnostics. |
-| R03 | [Skip special events with blank epoch fields](docs/tasks/R03.md) | P2 | done | — | 2026-10-15 | Untimed blocks are consumed without timestamps/state across supported inputs; standalone COMMENT records remain readable, including text beginning with `>`. |
-| R04 | [Distinguish metadata events from ambiguity resets](docs/tasks/R04.md) | P2 | done | — | 2026-10-15 | Reviewed reset classification preserves metadata-event continuity and true-reset boundaries without rewriting phase. |
-
-Permanent acceptance evidence is in the [reader/event](tests/test_rinex_quality.py), [signal-selection](tests/test_observation_quality.py) and [physical-arc](tests/test_cycle_slip.py) regressions. Reader and classification limits are documented in [README](README.md#observation-quality-and-scientific-conventions). Older completed deliveries are in [history](docs/roadmap-history.md).
+No recent entries. Completed deliveries are in [history](docs/roadmap-history.md).
 
 ## Conventions
 
