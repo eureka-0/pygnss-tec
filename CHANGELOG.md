@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Reorganize Python modules into `io`, `signals`, `calibration` and
+  `calculation`, with shared `configuration.py`, physical constants and Arrow
+  adaptation at package level. Remove `gnss_tec.tec.*` and `gnss_tec.rinex.*`
+  import paths without compatibility aliases.
 - Add keyword-only `read_rinex_obs(..., include_lli=False)`: default wide/long
   outputs omit LLI and native LLI buffers. Opt in for raw UInt8/null indicators;
   observations, epoch flags and retained event metadata are unchanged.

@@ -4,9 +4,9 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
+from gnss_tec._arrow import record_batch
 from gnss_tec._core import _basic_arcs
-from gnss_tec.tec._arrow import record_batch
-from gnss_tec.tec.quality import _arc_expressions, add_basic_arcs
+from gnss_tec.signals.arcs import _arc_expressions, add_basic_arcs
 
 
 @pytest.mark.parametrize("cadence", [None, 30.0])

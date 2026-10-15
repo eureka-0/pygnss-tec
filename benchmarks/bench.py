@@ -27,8 +27,8 @@ from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
 import gnss_tec._core as core
-from gnss_tec.rinex import RinexObsHeader
-from gnss_tec.tec.preparation import _prepare_observations
+from gnss_tec.calculation.observation_geometry import _prepare_observations
+from gnss_tec.io.rinex import RinexObsHeader
 
 ROOT = Path(__file__).resolve().parents[1]
 Engine = Literal["streaming", "in-memory"]

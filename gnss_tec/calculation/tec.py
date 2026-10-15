@@ -9,19 +9,29 @@ import polars as pl
 import polars.selectors as cs
 from numpy.typing import NDArray
 
-from ..rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
-from .bias import estimate_rx_bias, read_bias
-from .constants import (
-    CODE_FREQUENCIES,
-    DIAGNOSTIC_COLUMNS,
-    INTERNAL_COLUMNS,
-    TECConfig,
-    c,
+from ..calibration.receiver_bias import estimate_rx_bias
+from ..configuration import DIAGNOSTIC_COLUMNS, TECConfig
+from ..constants import c
+from ..io.bias_sinex import read_bias
+from ..io.rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
+from ..signals.arcs import add_basic_arcs
+from ..signals.definitions import CODE_FREQUENCIES
+from ..signals.selection import coalesce_observations as _coalesce_observations
+from .mapping_functions import modified_single_layer_model, single_layer_model
+from .observation_geometry import _prepare_observations
+
+INTERNAL_COLUMNS = frozenset(
+    {
+        "tx_bias_start",
+        "tx_bias_end",
+        "rx_bias_start",
+        "rx_bias_end",
+        "level_id",
+        "offset",
+        "weight",
+    }
 )
-from .mapping_func import modified_single_layer_model, single_layer_model
-from .preparation import _prepare_observations
-from .quality import add_basic_arcs
-from .signals import coalesce_observations as _coalesce_observations
+"""Leveling and bias state that must never appear in returned TEC tables."""
 
 
 def _require_columns(lf: pl.LazyFrame, columns: Iterable[str], context: str) -> None:

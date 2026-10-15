@@ -7,10 +7,9 @@ from pathlib import Path
 
 import polars as pl
 
+from .._arrow import record_batch
 from .._core import _azimuth_elevation, _ecef_to_geodetic, _satellite_positions
-from ..rinex import RinexObsHeader
-from ..rinex.read_rinex import _handle_fn
-from ._arrow import record_batch
+from ..io.rinex import RinexObsHeader, _handle_fn
 
 
 def _calculate_azimuth_elevation(samples: pl.Series) -> pl.Series:

@@ -1,7 +1,7 @@
 import pytest
 
-from gnss_tec.rinex import RinexObsHeader
-from gnss_tec.tec.constants import TECConfig, get_sampling_config
+from gnss_tec.configuration import TECConfig, get_sampling_config
+from gnss_tec.io.rinex import RinexObsHeader
 
 
 def test_rinex_header_metadata_roundtrip():

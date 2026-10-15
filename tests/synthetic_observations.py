@@ -6,8 +6,8 @@ import numpy as np
 import polars as pl
 
 import gnss_tec as gt
-from gnss_tec.rinex import RinexObsHeader
-from gnss_tec.tec.constants import TECConfig
+from gnss_tec.configuration import TECConfig
+from gnss_tec.io.rinex import RinexObsHeader
 
 F1, F2, C = 1575.42e6, 1227.60e6, 299792458.0
 K = F1**2 * F2**2 / (F1**2 - F2**2) / 40.3e16

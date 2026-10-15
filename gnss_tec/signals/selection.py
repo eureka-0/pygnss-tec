@@ -8,10 +8,11 @@ from typing import Literal
 
 import polars as pl
 
+from .._arrow import record_batch
 from .._core import _select_observations
-from ._arrow import record_batch
-from .bias import prepare_code_bias
-from .constants import CODE_FREQUENCIES, TECConfig
+from ..calibration.code_bias import prepare_code_bias
+from ..configuration import TECConfig
+from .definitions import CODE_FREQUENCIES
 
 
 def coalesce_observations(

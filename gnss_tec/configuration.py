@@ -9,42 +9,7 @@ from typing import Literal
 
 import polars as pl
 
-c = 299792458.0
-"""Speed of light in m/s"""
-
-Re = 6378.137e3
-"""Earth radius in meters."""
-
-SUPPORTED_RINEX_VERSIONS = ["2", "3"]
-"""Supported RINEX major versions."""
-
-SUPPORTED_CONSTELLATIONS = {"C": "BDS", "G": "GPS"}
-"""Supported GNSS constellations for TEC calculation."""
-
-SIGNAL_FREQ: dict[str, dict[str, float]] = {
-    "C": {
-        "B1-2": 1561.098e6,
-        "B1": 1575.42e6,
-        "B2a": 1176.45e6,
-        "B2b": 1207.14e6,
-        "B2": 1191.795e6,
-        "B3": 1268.52e6,
-    },
-    "G": {"L1": 1575.42e6, "L2": 1227.60e6, "L5": 1176.45e6},
-}
-"""Signal frequencies for supported constellations and signals in Hz."""
-
-CODE_FREQUENCIES = {
-    "C_1": SIGNAL_FREQ["C"]["B1"],
-    "C_2": SIGNAL_FREQ["C"]["B1-2"],
-    "C_5": SIGNAL_FREQ["C"]["B2a"],
-    "C_6": SIGNAL_FREQ["C"]["B3"],
-    "C_7": SIGNAL_FREQ["C"]["B2b"],
-    "C_8": SIGNAL_FREQ["C"]["B2"],
-    "G_1": SIGNAL_FREQ["G"]["L1"],
-    "G_2": SIGNAL_FREQ["G"]["L2"],
-    "G_5": SIGNAL_FREQ["G"]["L5"],
-}
+from .signals.definitions import SUPPORTED_CONSTELLATIONS, SUPPORTED_RINEX_VERSIONS
 
 DEFAULT_C1_CODES: dict[str, dict[str, list[str]]] = {
     "2": {"G": ["C1"]},
@@ -95,19 +60,6 @@ DIAGNOSTIC_COLUMNS = frozenset(
     }
 )
 """Optional public TEC diagnostics; availability also depends on bias inputs."""
-
-INTERNAL_COLUMNS = frozenset(
-    {
-        "tx_bias_start",
-        "tx_bias_end",
-        "rx_bias_start",
-        "rx_bias_end",
-        "level_id",
-        "offset",
-        "weight",
-    }
-)
-"""Leveling and bias state that must never appear in returned TEC tables."""
 
 
 @dataclass(frozen=True, kw_only=True)

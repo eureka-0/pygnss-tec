@@ -12,10 +12,10 @@ import pytest
 from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
-import gnss_tec.tec.tec_calculation as tc
-from gnss_tec.rinex import RinexObsHeader
-from gnss_tec.tec.bias import _lsq_rx_bias, _mstd_rx_bias
-from gnss_tec.tec.constants import Re, c
+import gnss_tec.calculation.tec as tc
+from gnss_tec.calibration.receiver_bias import _lsq_rx_bias, _mstd_rx_bias
+from gnss_tec.constants import Re, c
+from gnss_tec.io.rinex import RinexObsHeader
 
 
 @pytest.fixture

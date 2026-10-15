@@ -6,9 +6,9 @@ import pytest
 from synthetic_observations import C, K, bias_rows, calculate, physical_observations
 
 import gnss_tec as gt
-import gnss_tec.tec.tec_calculation as tc
-from gnss_tec.tec.bias import prepare_code_bias
-from gnss_tec.tec.constants import TECConfig
+import gnss_tec.calculation.tec as tc
+from gnss_tec.calibration.code_bias import prepare_code_bias
+from gnss_tec.configuration import TECConfig
 
 
 @pytest.mark.parametrize("span", ["daily", "subdaily", "monthly"])

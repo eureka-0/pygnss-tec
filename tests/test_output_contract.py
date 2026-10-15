@@ -11,10 +11,11 @@ from polars.testing import assert_frame_equal
 from synthetic_observations import bias_rows, physical_observations, write_minimal_rinex
 
 import gnss_tec as gt
-import gnss_tec.tec.tec_calculation as tc
+import gnss_tec.calculation.tec as tc
 from gnss_tec._core import _read_obs
-from gnss_tec.tec.constants import DIAGNOSTIC_COLUMNS, INTERNAL_COLUMNS
-from gnss_tec.tec.preparation import _prepare_observations
+from gnss_tec.calculation.observation_geometry import _prepare_observations
+from gnss_tec.calculation.tec import INTERNAL_COLUMNS
+from gnss_tec.configuration import DIAGNOSTIC_COLUMNS
 
 
 @pytest.mark.parametrize("version", [2, 3])

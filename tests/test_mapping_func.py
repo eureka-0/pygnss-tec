@@ -2,8 +2,11 @@ import numpy as np
 import polars as pl
 import pytest
 
-from gnss_tec.tec.constants import TECConfig
-from gnss_tec.tec.mapping_func import modified_single_layer_model, single_layer_model
+from gnss_tec.calculation.mapping_functions import (
+    modified_single_layer_model,
+    single_layer_model,
+)
+from gnss_tec.configuration import TECConfig
 
 
 @pytest.mark.parametrize("mapping", [single_layer_model, modified_single_layer_model])

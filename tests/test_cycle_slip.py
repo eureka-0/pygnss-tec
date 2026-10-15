@@ -6,7 +6,7 @@ import pytest
 from synthetic_observations import F1, F2, C, K, calculate, physical_observations
 
 import gnss_tec as gt
-from gnss_tec.tec.constants import TECConfig
+from gnss_tec.configuration import TECConfig
 
 
 @pytest.mark.parametrize("cadence", [0.1, 1, 30])

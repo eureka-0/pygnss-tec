@@ -8,9 +8,12 @@ import pytest
 from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
+from gnss_tec._arrow import record_batch
 from gnss_tec._core import _azimuth_elevation, _ecef_to_geodetic
-from gnss_tec.tec._arrow import record_batch
-from gnss_tec.tec.preparation import _calculate_azimuth_elevation, _prepare_observations
+from gnss_tec.calculation.observation_geometry import (
+    _calculate_azimuth_elevation,
+    _prepare_observations,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures/geometry"
 COORDINATES = ["_sat_x", "_sat_y", "_sat_z", "rx_lat", "rx_lon", "_rx_alt"]

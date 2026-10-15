@@ -14,11 +14,11 @@ from polars.testing import assert_frame_equal
 from real_observations import OBSERVATION_CODES, collect_short_windows
 
 import gnss_tec as gt
-from gnss_tec.rinex import RinexObsHeader
-from gnss_tec.tec.bias import estimate_rx_bias
-from gnss_tec.tec.constants import c
-from gnss_tec.tec.preparation import _prepare_observations
-from gnss_tec.tec.tec_calculation import _coalesce_observations
+from gnss_tec.calculation.observation_geometry import _prepare_observations
+from gnss_tec.calculation.tec import _coalesce_observations
+from gnss_tec.calibration.receiver_bias import estimate_rx_bias
+from gnss_tec.constants import c
+from gnss_tec.io.rinex import RinexObsHeader
 
 
 @dataclass

@@ -5,7 +5,8 @@ from typing import Protocol
 import numpy as np
 import polars as pl
 
-from .constants import Re, TECConfig
+from ..configuration import TECConfig
+from ..constants import Re
 
 
 class MappingFunctionProtocol(Protocol):

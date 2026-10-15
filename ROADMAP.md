@@ -8,7 +8,7 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 
 - **Main goal:** resolve the outstanding R01–R04 findings while preserving the delivered reader/TEC output contract and basic QC/calibration behavior.
 - **Underway:** no task is currently in progress.
-- **Delivered:** T027, T028 and T029 completed together: optional native LLI, `retain_diagnostics`, default satellite geometry, synchronized README output and NumPy-style docstrings with class/field TECConfig documentation. See Recently Completed.
+- **Delivered:** T023 reorganized the Python package into `io`, `signals`, `calibration` and `calculation` with unchanged function definitions and verified outputs. T027, T028 and T029 delivered optional native LLI, `retain_diagnostics`, default satellite geometry, synchronized README output and NumPy-style docstrings. See Recently Completed.
 - **Next implementation run:** R01, then R02 are the recommended correctness fixes; R03 can proceed independently. R04 needs event/reset classification before implementation.
 - **Reader policy:** `include_lli=False` omits selected LLI columns, while RINEX-to-TEC explicitly enables LLI. Skipping special events with blank epoch fields remains pending under R03.
 - **Open decisions:** R04 needs timestamped event/reset classification. R05 will evaluate rolling GF/MW detection, its TEC accuracy and runtime tradeoff, and small-slip sensitivity. T005 will explore high-performance kernels; the default remains basic QC pending validation and review.
@@ -53,7 +53,6 @@ These tables are the authority for active task priority, status and dependencies
 | T004 | Introduce genuinely bounded input batches | P1 | backlog | — | [Plan](docs/tasks/T004.md) |
 | T005 | Explore high-performance arc and GF/MW kernels | P1 | backlog | — | [Plan](docs/tasks/T005.md) |
 | T010 | Bound parallelism and eliminate demonstrated rescans | P1 | backlog | — | [Plan](docs/tasks/T010.md) |
-| T023 | Extract focused modules behind compatible entry points | P3 | backlog | — | [Plan](docs/tasks/T023.md) |
 
 ### Signals & Data Products
 
@@ -130,6 +129,7 @@ Before starting, inventory undocumented contracts against the current implementa
 
 | ID | Task | Priority | Status | Dependencies | Completed | Outcome |
 |---|---|---|---|---|---|---|
+| T023 | Extract focused modules behind compatible entry points | P3 | done | — | 2026-10-15 | Approved package layout implemented; six common exports retained, old deep-import paths removed as requested. Function definitions, scientific outputs and installed wheel verified. [Record](docs/tasks/T023.md) |
 | T027 | Make LLI output optional in RINEX observation reads | P2 | done | — | 2026-10-14 | Native/Python wide and long output defaults omit LLI; RINEX-to-TEC explicitly opts in. [Record](docs/tasks/T027.md) |
 | T028 | Simplify TEC output and diagnostic columns | P2 | done | — | 2026-10-14 | `retain_diagnostics` replaces the old option; geometry is always public, diagnostics are selectable and leveling/bias state remains private. [Record](docs/tasks/T028.md) |
 | T029 | Migrate Python docstrings to NumPy style | P3 | done | — | 2026-10-14 | Package sections, TECConfig class/field/method documentation and AGENTS.md convention updated; actual ty hover inspected with its keyword-doc limitation recorded. [Record](docs/tasks/T029.md) |

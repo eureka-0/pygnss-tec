@@ -4,8 +4,8 @@ import pytest
 from synthetic_observations import calculate, physical_observations, write_minimal_rinex
 
 import gnss_tec as gt
-from gnss_tec.rinex import RinexObsHeader
-from gnss_tec.tec.preparation import _prepare_observations
+from gnss_tec.calculation.observation_geometry import _prepare_observations
+from gnss_tec.io.rinex import RinexObsHeader
 
 
 @pytest.mark.parametrize("retain", [None, "all", ["azimuth", "qc_valid"]])

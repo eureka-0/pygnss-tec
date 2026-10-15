@@ -6,8 +6,8 @@ from collections.abc import Sequence
 
 import polars as pl
 
+from .._arrow import record_batch
 from .._core import _basic_arcs
-from ._arrow import record_batch
 
 ARC_DTYPE = pl.Struct({"arc_id": pl.UInt32, "qc_reason": pl.String})
 
