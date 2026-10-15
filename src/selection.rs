@@ -24,6 +24,7 @@ struct Candidate<'a> {
     values: [&'a Float64Array; 4],
     snr: [Option<&'a Float64Array>; 2],
     lli: [Option<&'a UInt8Array>; 2],
+    usable: &'a BooleanArray,
 }
 
 struct Group<'a> {
@@ -43,6 +44,7 @@ struct Interval {
 struct Winner<'a> {
     candidate: usize,
     complete: bool,
+    usable: bool,
     available: bool,
     coverage: usize,
     tx: Option<&'a Interval>,
@@ -250,6 +252,7 @@ pub(crate) fn record_batch(
                         optional(&input, &format!("L{}_lli", &first[1..]))?,
                         optional(&input, &format!("L{}_lli", &second[1..]))?,
                     ],
+                    usable: column(&input, &format!("_usable_{system}_{first}_{second}"))?,
                 })
             },
         )
@@ -334,7 +337,9 @@ pub(crate) fn record_batch(
                     let rx = interval(rx, time);
                     let available = bias.is_none() || (tx.is_some() && (!receiver || rx.is_some()));
                     let complete = complete(row);
+                    let usable = complete && candidate.usable.value(row);
                     let score = (
+                        usable,
                         complete,
                         available,
                         coverage,
@@ -346,6 +351,7 @@ pub(crate) fn record_batch(
                         let previous = &candidates[old.candidate];
                         score
                             > (
+                                old.usable,
                                 old.complete,
                                 old.available,
                                 old.coverage,
@@ -358,6 +364,7 @@ pub(crate) fn record_batch(
                         *winner = Some(Winner {
                             candidate: index,
                             complete,
+                            usable,
                             available,
                             coverage,
                             tx,

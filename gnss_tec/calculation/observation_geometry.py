@@ -18,6 +18,17 @@ def _calculate_azimuth_elevation(samples: pl.Series) -> pl.Series:
     return result.to_struct()
 
 
+def _event_resets_ambiguity(flag: int, records: str) -> bool:
+    """Apply the reviewed conservative policy to retained timestamped events."""
+    if flag == 5:
+        # External events do not define an ambiguity reset. Free text is not
+        # machine-readable reset evidence; independent LLI/state still applies.
+        return False
+    if flag == 4:
+        return any(line[60:].strip() != "COMMENT" for line in records.splitlines()[1:])
+    return flag != 0
+
+
 def _prepare_observations(
     lf: pl.LazyFrame,
     header: RinexObsHeader,
@@ -26,6 +37,13 @@ def _prepare_observations(
 ) -> pl.LazyFrame:
     """Generate state and geometry without adding them to the raw reader schema."""
     schema = lf.collect_schema()
+    reset_epochs = sorted(
+        {
+            epoch
+            for epoch, flag, records in header.epoch_events
+            if _event_resets_ambiguity(flag, records)
+        }
+    )
     lf = lf.with_columns(utc_epoch.dt.epoch("ns").alias("_utc_ns"))
     if header.receiver_history:
         history = sorted(set(header.receiver_history), key=lambda item: item[0])
@@ -69,14 +87,12 @@ def _prepare_observations(
     )
     if "receiver_state" in schema:
         lf = lf.with_columns(pl.col("receiver_state").alias("_event_state"))
-    elif header.epoch_events:
+    elif reset_epochs:
         events = pl.DataFrame(
             {
-                "_event_epoch": pl.Series(
-                    [event[0] for event in header.epoch_events], dtype=pl.Int64
-                ),
+                "_event_epoch": pl.Series(reset_epochs, dtype=pl.Int64),
                 "_event_state": pl.Series(
-                    range(1, len(header.epoch_events) + 1), dtype=pl.UInt32
+                    range(1, len(reset_epochs) + 1), dtype=pl.UInt32
                 ),
             }
         ).lazy()

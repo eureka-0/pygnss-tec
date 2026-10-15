@@ -30,6 +30,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Convert structured package docstrings to NumPy style and document TECConfig
   defaults, units, validation and output behavior at class and field level.
 
+### Fixed
+
+- Keep flag-6 cycle-slip counts out of wide/long observation values and preserve
+  timestamped slip payloads in event metadata, independently of LLI output.
+- Consume and omit blank-epoch special events without inheriting timestamps or
+  receiver state, including RINEX 2 satellite/observation continuations and
+  supported gzip/Hatanaka and multi-file input paths.
+- Recognize fixed-column COMMENT records before epoch parsing, including
+  RINEX 3 comments whose free text starts with `>`.
+- Prefer usable signal pairs before preference ranking, with half-cycle/SNR
+  eligibility and retained rejection diagnostics when no usable pair exists.
+  Reconsider null-SNR candidates when selected groups change and resolve cyclic
+  group assignments conservatively. Loss-of-lock boundaries and final grouped
+  SNR acceptance remain unchanged.
+- Preserve continuous phase across COMMENT-only/empty flag-4 and external
+  flag-5 events; conservatively split on power/site/slip and other flag-4
+  events. Keep timestamped event metadata and deduplicate reset epochs.
+
 ## [0.4.2](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.2) - 2026-05-07
 
 ### Added

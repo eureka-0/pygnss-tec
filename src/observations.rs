@@ -9,6 +9,7 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
 };
 use pyo3::{PyResult, exceptions::PyValueError};
+use rinex::observation::EpochFlag;
 use rinex::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -49,8 +50,11 @@ fn wide(
     let mut flags = Vec::new();
 
     // The upstream BTreeMap orders epochs; only the current epoch needs an index.
-    // Keep that index across flags at the same epoch to preserve existing output.
+    // Special-event payloads contain slip counts, not measured observations.
     for (key, epoch) in observations.observations_iter() {
+        if !matches!(key.flag, EpochFlag::Ok | EpochFlag::PowerFailure) {
+            continue;
+        }
         if previous_epoch != Some(key.epoch) {
             row_by_satellite.clear();
             previous_epoch = Some(key.epoch);
@@ -142,6 +146,7 @@ fn long(
         if observables.is_none() && constellations.len() == crate::ALL_CONSTELLATIONS.len() {
             observations
                 .observations_iter()
+                .filter(|(key, _)| matches!(key.flag, EpochFlag::Ok | EpochFlag::PowerFailure))
                 .map(|(_, epoch)| epoch.signals.len())
                 .sum()
         } else {
@@ -156,6 +161,9 @@ fn long(
     let mut codes = LargeStringBuilder::with_capacity(len, len * 3);
     let mut lli = include_lli.then(|| UInt8Builder::with_capacity(len));
     for (key, epoch) in observations.observations_iter() {
+        if !matches!(key.flag, EpochFlag::Ok | EpochFlag::PowerFailure) {
+            continue;
+        }
         let time = quality::unix_ns(key.epoch)?;
         for signal in &epoch.signals {
             if !constellations.contains(&signal.sv.constellation)

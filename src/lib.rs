@@ -125,14 +125,10 @@ fn _read_obs(
         .observations_iter()
         .next()
         .map(|(key, _)| key.epoch);
-    let scale = first
-        .map(|epoch| epoch.time_scale)
-        .unwrap_or(TimeScale::GPST);
-    let version = observations.header.version.major;
     let events = py.detach(|| {
         let mut events = Vec::new();
         for path in &obs_fn {
-            events.extend(quality::events(path, version, scale)?);
+            events.extend(quality::events(path)?);
         }
         events.sort_by_key(|event| event.0);
         Ok::<_, PyErr>(events)

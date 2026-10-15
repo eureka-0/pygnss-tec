@@ -162,8 +162,6 @@ print(lf.collect(engine="in-memory"))
 # └─────────────────────────┴─────────┴─────┴──────┴──────────┴────────────┘
 ```
 
-Navigation input belongs to TEC calculation. `read_rinex_obs` no longer accepts `nav_fn`; it does not produce satellite coordinates, azimuth/elevation, half-cycle validity or receiver state columns.
-
 ### TEC calculation
 
 #### From RINEX files
@@ -332,8 +330,6 @@ The meaning of each parameter is as follows:
 When using `calc_tec_from_df` or `calc_tec_from_parquet`, the time scale is expressed by the Polars `time` column type. Use timezone-aware UTC datetimes for UTC time, and timezone-naive datetimes for GPS time. Parquet preserves this timezone information, so saved observation files keep the same UTC/GPS semantics when read back. Other timezones are rejected to avoid ambiguous UTC/GPS conversions.
 
 ### Observation quality and scientific conventions
-
-Observation times use nanosecond precision, and sampling intervals are in seconds. Parquet preserves the time scale and RINEX header metadata.
 
 Request `read_rinex_obs(..., include_lli=True)` to retain raw lock indicators as `<signal>_lli` in wide format or `lli` in long format. `epoch_flag` remains available independently of this option. RINEX-to-TEC enables LLI automatically for QC even when the final output hides the diagnostic columns. DataFrame/Parquet inputs without LLI remain accepted, but recorded loss-of-lock/half-cycle information cannot be reconstructed. Preserve version-specific raw bits: RINEX 2 wavelength-factor and RINEX 3 half-cycle meanings differ. Their definitions follow the [RINEX format specification](https://files.igs.org/pub/data/format/rinex305.pdf).
 

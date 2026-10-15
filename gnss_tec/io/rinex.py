@@ -99,7 +99,11 @@ class RinexObsHeader:
     """Integer epoch resolution; parsed observations use nanoseconds."""
 
     epoch_events: tuple[tuple[int, int, str], ...] = ()
-    """UTC nanosecond timestamp, RINEX event flag and original event records."""
+    """Timestamped events: UTC ns, RINEX flag and original logical records.
+
+    Blank-epoch special events and their payloads are omitted. Flag-6 slip
+    payloads are retained here and excluded from observation values.
+    """
 
     receiver_id: str | None = None
     """Receiver serial number, model and firmware identity, if supplied."""
@@ -299,7 +303,10 @@ def read_rinex_obs(
     observations : polars.LazyFrame
         Nanosecond time, station/prn, Float64 observations in RINEX units,
         epoch_flag and optional UInt8/null LLI. Geometry and TEC state are
-        prepared by the TEC functions. Parsing completes before return.
+        prepared by the TEC functions. Only flag-0/1 records contribute values;
+        timestamped flag-6 payloads are retained in header events. Special
+        records with blank epoch fields are consumed and omitted without
+        assigning a timestamp or receiver state. Parsing completes before return.
 
     Raises
     ------

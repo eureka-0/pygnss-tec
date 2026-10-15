@@ -6,12 +6,12 @@ Develop a reliable scientific library for GNSS observations and ionospheric prod
 
 ## Current Focus
 
-- **Main goal:** resolve the outstanding R01–R04 findings while preserving the delivered reader/TEC output contract and basic QC/calibration behavior.
+- **Main goal:** preserve the delivered reader/TEC contracts while addressing the remaining M1 scientific validation and reliability work.
 - **Underway:** no task is currently in progress.
-- **Delivered:** T023 and T027–T029 are recorded in [history](docs/roadmap-history.md#completed-engineering-and-api-tasks).
-- **Next implementation run:** execute R01–R04 as the user-selected scope. R01–R03 have defined implementation scopes; begin R04 with event/reset classification and obtain its required review before dependent changes.
-- **Reader policy:** `include_lli=False` omits selected LLI columns, while RINEX-to-TEC explicitly enables LLI. Skipping special events with blank epoch fields remains pending under R03.
-- **Open decisions:** R04 needs timestamped event/reset classification. R05's independent-truth detection study can be planned now, alongside T005's native-kernel work; production integration/default changes require validation and review. These tasks preserve raw phase and do not schedule numerical ambiguity repair. The default remains basic QC.
+- **Delivered:** the user-selected R01–R04 run is complete; see [Recently Completed](#recently-completed) and its permanent acceptance tests. T023 and T027–T029 are recorded in [history](docs/roadmap-history.md#completed-engineering-and-api-tasks).
+- **Next implementation run:** not selected. Completing R01–R04 does not authorize additional tasks or close M1.
+- **Reader policy:** `include_lli=False` omits selected LLI columns, while RINEX-to-TEC explicitly enables LLI. Blank-epoch special events are consumed and omitted without inherited timestamps/state; timestamped flag-6 payloads remain metadata rather than observations.
+- **Open decisions:** R04's event/reset classification was reviewed and delivered. R05's independent-truth detection study can be planned alongside T005's native-kernel work; production integration/default changes require validation and review. These tasks preserve raw phase and do not schedule numerical ambiguity repair. The default remains basic QC.
 
 ## Milestones
 
@@ -32,10 +32,6 @@ These tables are the authority for active task priority, status and dependencies
 
 | ID | Task | Priority | Status | Dependencies | Details |
 |---|---|---|---|---|---|
-| R01 | Keep cycle-slip event records out of observation values | P1 | ready | — | [Scope & acceptance](#r01-keep-cycle-slip-event-records-out-of-observation-values) |
-| R02 | Prefer usable signal pairs before applying priorities | P2 | ready | — | [Scope & acceptance](#r02-prefer-usable-signal-pairs-before-applying-priorities) |
-| R03 | Skip special events with blank epoch fields | P2 | ready | — | [Plan](docs/tasks/R03.md) |
-| R04 | Distinguish metadata events from ambiguity resets | P2 | backlog | — | [Plan](docs/tasks/R04.md) |
 | R05 | Evaluate GF/MW detection and small-slip sensitivity | P1 | backlog | — | [Plan & measured impact](docs/tasks/R05.md) |
 | T006 | Stabilize and accelerate receiver-bias estimation | P1 | backlog | — | [Plan](docs/tasks/T006.md) |
 | T007 | Make SNR filtering and leveling robust | P1 | backlog | — | [Plan](docs/tasks/T007.md) |
@@ -85,22 +81,6 @@ These tables are the authority for active task priority, status and dependencies
 
 ### Inline task specifications
 
-#### R01: Keep cycle-slip event records out of observation values
-
-**Scope and approach:** `src/observations.rs`, `src/quality.rs`, `tests/test_rinex_quality.py`. Separate flag-6 payloads from normal observations in both layouts and retain timestamped events under R03's policy. Exclusion of event payloads from observations must not depend on LLI output being enabled.
-
-**Acceptance and validation:** a same-epoch flag-6 L1 slip count of 5 never replaces the normal 110355719.242-cycle observation or creates duplicate observation keys. The epoch/SV overwrite mechanism predates this change set.
-
-Reproduce the same-epoch collision, separate event payload ingestion, and verify both table layouts plus preserved event metadata and unique observation keys. The overwrite mechanism predates the reviewed changes.
-
-#### R02: Prefer usable signal pairs before applying priorities
-
-**Scope and approach:** `gnss_tec/signals/selection.py`, `src/selection.rs`, `tests/test_observation_quality.py`. Include phase validity and the existing SNR policy in candidate eligibility; preserve diagnostics when no candidate is usable.
-
-**Acceptance and validation:** invalid-half-cycle C1W/L1W falls back to valid C1C/L1C, retaining all 20 synthetic epochs; loss-of-lock alone remains an arc boundary, not automatic sample rejection.
-
-Reproduce the 20-epoch fallback case, apply the existing validity/SNR policy before preference ranking, and check no-usable-pair diagnostics, loss-of-lock boundaries and existing pair-switch tests. Do not alter the SNR policy as part of this fix. Reader-based QC fixtures must request `include_lli=True` under T027 so the validity checks receive recorded flags.
-
 #### T022: Tighten typing and schema contracts
 
 **Scope and approach:** `gnss_tec/py.typed`, `gnss_tec/_core.pyi`, headers/configuration modules, `pyproject.toml`. Fill annotation gaps; validate units/time/columns at boundaries; use PEP 695 only where useful and preserve Python 3.12 compatibility when considering PEP 696.
@@ -127,7 +107,14 @@ Before starting, inventory undocumented contracts against the current implementa
 
 ## Recently Completed
 
-No recent entries. Completed deliveries are in [history](docs/roadmap-history.md).
+| ID | Task | Priority | Status | Dependencies | Completed | Outcome |
+|---|---|---|---|---|---|---|
+| R01 | Keep cycle-slip event records out of observation values | P1 | done | — | 2026-10-15 | Flag-6 payloads remain metadata; normal values and unique keys survive in both layouts and LLI modes. |
+| R02 | Prefer usable signal pairs before applying priorities | P2 | done | — | 2026-10-15 | Half-cycle/SNR eligibility precedes ranking; changed groups can restore null-SNR candidates, with cycle protection and no-usable-pair diagnostics. |
+| R03 | [Skip special events with blank epoch fields](docs/tasks/R03.md) | P2 | done | — | 2026-10-15 | Untimed blocks are consumed without timestamps/state across supported inputs; standalone COMMENT records remain readable, including text beginning with `>`. |
+| R04 | [Distinguish metadata events from ambiguity resets](docs/tasks/R04.md) | P2 | done | — | 2026-10-15 | Reviewed reset classification preserves metadata-event continuity and true-reset boundaries without rewriting phase. |
+
+Permanent acceptance evidence is in the [reader/event](tests/test_rinex_quality.py), [signal-selection](tests/test_observation_quality.py) and [physical-arc](tests/test_cycle_slip.py) regressions. Reader and classification limits are documented in [README](README.md#observation-quality-and-scientific-conventions). Older completed deliveries are in [history](docs/roadmap-history.md).
 
 ## Conventions
 

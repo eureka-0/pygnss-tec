@@ -1,14 +1,10 @@
-//! Supplement event records that the upstream observation parser discards.
+//! Frame observation/event records before the upstream observation parser sees them.
 use std::{
-    borrow::Cow,
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader, Read},
     str::FromStr,
 };
 
-use pyo3::{
-    PyResult,
-    exceptions::{PyIOError, PyValueError},
-};
+use pyo3::{PyResult, exceptions::PyValueError};
 use rinex::{hatanaka::Decompressor, prelude::*};
 
 use crate::rinex_io;
@@ -24,126 +20,270 @@ pub(crate) fn unix_ns(epoch: Epoch) -> PyResult<i64> {
         .map_err(|_| PyValueError::new_err("Epoch is outside the signed nanosecond range"))
 }
 
-/// Return an event and its following payload length, or skip a non-event line.
-fn parse_event(line: &str, version: u8, scale: TimeScale) -> PyResult<Option<(EpochEvent, usize)>> {
-    let epoch_line = if version >= 3 {
-        line.strip_prefix('>')
-    } else if line.len() >= 32 && line.starts_with(' ') {
-        line.get(..32)
-    } else {
-        None
-    };
-    let Some(epoch_line) = epoch_line else {
-        return Ok(None);
-    };
-    let mut fields = epoch_line.split_whitespace();
-    let mut parts = [""; 8];
-    for part in &mut parts {
-        let Some(field) = fields.next() else {
-            return Ok(None);
-        };
-        *part = field;
-    }
-    let Ok(flag) = parts[6].parse::<u8>() else {
-        return Ok(None);
-    };
-    if flag > 6 {
-        return Ok(None);
-    }
-    if parts[5]
-        .split('.')
-        .nth(1)
-        .is_some_and(|fraction| fraction.trim_end_matches('0').len() > 9)
+fn invalid(message: impl ToString) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.to_string())
+}
+
+struct Descriptor {
+    flag: u8,
+    count: usize,
+    epoch: Option<Epoch>,
+}
+
+fn descriptor(line: &str, version: u8, scale: TimeScale) -> io::Result<Option<Descriptor>> {
+    // COMMENT text may start with an epoch marker. Identify the fixed-column
+    // label before interpreting the free-text portion as an epoch descriptor.
+    if line
+        .get(60..)
+        .is_some_and(|label| label.trim() == "COMMENT")
     {
-        return Err(PyValueError::new_err(
+        return Ok(None);
+    }
+    let offset = if version >= 3 {
+        if !line.starts_with('>') {
+            return Ok(None);
+        }
+        29
+    } else {
+        if !line.starts_with(' ') || line.len() < 32 || line.trim_end().ends_with("COMMENT") {
+            return Ok(None);
+        }
+        26
+    };
+    // Check extended seconds before fixed-column parsing so unsupported precision
+    // cannot shift the flag field and silently hide a timestamped record.
+    let date_start = usize::from(version >= 3);
+    if let Some(seconds) = line[date_start..].split_whitespace().nth(5)
+        && seconds
+            .split('.')
+            .nth(1)
+            .is_some_and(|fraction| fraction.trim_end_matches('0').len() > 9)
+    {
+        return Err(invalid(
             "RINEX epoch precision finer than nanoseconds is unsupported",
         ));
     }
-    if flag == 0 {
-        return Ok(None);
-    }
-    let Ok(mut year) = parts[0].parse::<i32>() else {
-        return Ok(None);
+    let Some(date) = line.get(date_start..offset) else {
+        return Err(invalid("Incomplete RINEX epoch record"));
     };
-    if version == 2 {
-        year += if year < 80 { 2000 } else { 1900 };
+    let flag = line.get(offset..offset + 3).unwrap_or("").trim();
+    let count = line.get(offset + 3..offset + 6).unwrap_or("").trim();
+    let flag: u8 = flag
+        .parse()
+        .map_err(|_| invalid("Invalid RINEX epoch flag"))?;
+    if flag > 6 {
+        return Err(invalid("Invalid RINEX epoch flag"));
     }
-    let timestamp = format!(
-        "{year:04}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{} {scale}",
-        parts[1], parts[2], parts[3], parts[4], parts[5]
-    );
-    let epoch = Epoch::from_str(&timestamp)
-        .map_err(|error| PyValueError::new_err(format!("Invalid event epoch: {error}")))?;
-    let payload_count = if (2..=5).contains(&flag) {
-        parts[7].parse().unwrap_or(0)
+    let count = count
+        .parse()
+        .map_err(|_| invalid("Invalid RINEX record count"))?;
+    let parts: Vec<_> = date.split_whitespace().collect();
+    let epoch = if parts.is_empty() && flag >= 2 {
+        None
     } else {
-        0
+        if parts.len() != 6 {
+            return Err(invalid("Incomplete nonblank RINEX epoch"));
+        }
+        let mut year: i32 = parts[0]
+            .parse()
+            .map_err(|_| invalid("Invalid RINEX epoch year"))?;
+        if version == 2 {
+            year += if year < 80 { 2000 } else { 1900 };
+        }
+        let timestamp = format!(
+            "{year:04}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{} {scale}",
+            parts[1], parts[2], parts[3], parts[4], parts[5]
+        );
+        Some(
+            Epoch::from_str(&timestamp)
+                .map_err(|error| invalid(format!("Invalid event epoch: {error}")))?,
+        )
     };
-    Ok(Some((
-        (unix_ns(epoch)?, flag, line.to_string() + "\n"),
-        payload_count,
-    )))
+    Ok(Some(Descriptor { flag, count, epoch }))
 }
 
-pub(crate) fn events(path: &str, version: u8, scale: TimeScale) -> PyResult<Vec<EpochEvent>> {
-    const DECODE_CAPACITY: usize = 128 * 1024;
-    let mut reader = BufReader::with_capacity(64 * 1024, rinex_io::open(path)?);
-    let mut raw = String::new();
-    let mut compact = false;
-    let mut in_header = true;
-    let mut decompressor = Decompressor::default();
-    let mut buffer = vec![0u8; DECODE_CAPACITY];
-    let mut result: Vec<EpochEvent> = Vec::new();
-    let mut records_remaining = 0usize;
-    loop {
-        raw.clear();
-        if reader
-            .read_line(&mut raw)
-            .map_err(|error| PyIOError::new_err(error.to_string()))?
-            == 0
-        {
-            break;
+/// Decode at most one epoch at a time. Special blocks are consumed by their
+/// declared framing, so their payloads cannot be mistaken for new epochs.
+pub(crate) struct ObservationReader<R> {
+    reader: R,
+    decoder: Option<Decompressor>,
+    version: u8,
+    scale: TimeScale,
+    v2_observables: usize,
+    raw: String,
+    decoded: Vec<u8>,
+    decoded_offset: usize,
+    pending: Vec<u8>,
+    pending_offset: usize,
+    pub(crate) error: Option<String>,
+}
+
+impl<R: BufRead> ObservationReader<R> {
+    pub(crate) fn new(reader: R, header: &Header) -> Self {
+        let obs = header.obs.as_ref().expect("observation header");
+        Self {
+            reader,
+            decoder: obs.crinex.as_ref().map(|crinex| {
+                Decompressor::new(
+                    crinex.version.major >= 3,
+                    header.constellation.unwrap_or_default(),
+                    obs.codes.clone(),
+                )
+            }),
+            version: header.version.major,
+            scale: obs
+                .timeof_first_obs
+                .or(obs.timeof_last_obs)
+                .map(|epoch| epoch.time_scale)
+                .unwrap_or(TimeScale::GPST),
+            v2_observables: obs.codes.values().next().map_or(0, Vec::len),
+            raw: String::new(),
+            decoded: Vec::new(),
+            decoded_offset: 0,
+            pending: Vec::new(),
+            pending_offset: 0,
+            error: None,
         }
-        // Match BufRead::lines: strip CR only when it precedes a terminating LF.
-        if raw.ends_with('\n') {
-            raw.pop();
-            if raw.ends_with('\r') {
-                raw.pop();
+    }
+
+    fn line(&mut self, mut at_epoch: bool) -> io::Result<Option<String>> {
+        loop {
+            if self.decoded_offset < self.decoded.len() {
+                let tail = &self.decoded[self.decoded_offset..];
+                let len = tail
+                    .iter()
+                    .position(|&c| c == b'\n')
+                    .map_or(tail.len(), |i| i + 1);
+                let line = std::str::from_utf8(&tail[..len])
+                    .map_err(invalid)?
+                    .to_string();
+                self.decoded_offset += len;
+                return Ok(Some(line));
             }
-        }
-        if raw.contains("CRINEX VERS / TYPE") {
-            compact = true;
-        }
-        let decoded = if compact {
-            let size = decompressor
-                .decompress(&raw, raw.len(), &mut buffer, DECODE_CAPACITY)
+            self.raw.clear();
+            if self.reader.read_line(&mut self.raw)? == 0 {
+                return Ok(None);
+            }
+            let Some(decoder) = &mut self.decoder else {
+                // Event metadata stores logical records with normalized LF,
+                // including an unterminated final record.
+                if self.raw.ends_with('\n') {
+                    self.raw.pop();
+                    if self.raw.ends_with('\r') {
+                        self.raw.pop();
+                    }
+                }
+                self.raw.push('\n');
+                return Ok(Some(self.raw.clone()));
+            };
+            // Preserve a terminator for the shortest epoch text differences;
+            // clock/observation kernels strip their own trailing whitespace.
+            if !self.raw.ends_with('\n') {
+                self.raw.push('\n');
+            }
+            let raw = self.raw.as_str();
+            // A trailing blank record is legal. Blank clock records inside an
+            // epoch are significant and must still reach the decompressor.
+            if at_epoch && raw.trim().is_empty() {
+                continue;
+            }
+            at_epoch = false;
+            self.decoded.resize(128 * 1024, 0);
+            let capacity = self.decoded.len();
+            let size = decoder
+                .decompress(raw, raw.len(), &mut self.decoded, capacity)
                 .map_err(|error| {
-                    PyValueError::new_err(format!("Event decompression failed: {error:?}"))
+                    invalid(format!(
+                        "Event decompression failed: {error}; input {raw:?}"
+                    ))
                 })?;
-            String::from_utf8_lossy(&buffer[..size])
-        } else {
-            Cow::Borrowed(raw.as_str())
+            self.decoded.truncate(size);
+            if size > 0 && !self.decoded.ends_with(b"\n") {
+                self.decoded.push(b'\n');
+            }
+            self.decoded_offset = 0;
+        }
+    }
+
+    fn next_record(&mut self) -> io::Result<Option<(Option<Epoch>, u8)>> {
+        self.pending.clear();
+        self.pending_offset = 0;
+        let Some(line) = self.line(true)? else {
+            return Ok(None);
         };
-        // A decompression call may produce multiple logical records.
-        for line in decoded.lines() {
-            if in_header {
-                if line.contains("END OF HEADER") {
-                    in_header = false;
-                }
-                continue;
+        let Some(record) = descriptor(&line, self.version, self.scale)? else {
+            // RINEX permits standalone comments between records.
+            self.pending.extend_from_slice(line.as_bytes());
+            return Ok(Some((None, 0)));
+        };
+        self.pending.extend_from_slice(line.as_bytes());
+        let following = if (2..=5).contains(&record.flag) {
+            record.count
+        } else if self.version == 2 {
+            record.count.saturating_sub(1) / 12 + record.count * self.v2_observables.div_ceil(5)
+        } else {
+            record.count
+        };
+        for _ in 0..following {
+            let line = self
+                .line(false)?
+                .ok_or_else(|| invalid("Truncated RINEX epoch payload"))?;
+            self.pending.extend_from_slice(line.as_bytes());
+        }
+        Ok(Some((record.epoch, record.flag)))
+    }
+}
+
+impl<R: BufRead> ObservationReader<R> {
+    fn read_observations(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        while self.pending_offset == self.pending.len() {
+            let Some((_, flag)) = self.next_record()? else {
+                return Ok(0);
+            };
+            if flag >= 2 {
+                self.pending.clear();
             }
-            if records_remaining > 0 {
-                if let Some((_, _, text)) = result.last_mut() {
-                    text.push_str(line);
-                    text.push('\n');
-                }
-                records_remaining -= 1;
-                continue;
-            }
-            if let Some((event, payload_count)) = parse_event(line, version, scale)? {
-                result.push(event);
-                records_remaining = payload_count;
-            }
+        }
+        let count = output.len().min(self.pending.len() - self.pending_offset);
+        output[..count]
+            .copy_from_slice(&self.pending[self.pending_offset..self.pending_offset + count]);
+        self.pending_offset += count;
+        Ok(count)
+    }
+}
+
+impl<R: BufRead> Read for ObservationReader<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let result = self.read_observations(output);
+        if let Err(error) = &result {
+            self.error = Some(error.to_string());
+        }
+        result
+    }
+}
+
+pub(crate) fn events(path: &str) -> PyResult<Vec<EpochEvent>> {
+    let mut reader = BufReader::new(rinex_io::open(path)?);
+    let header =
+        Header::parse(&mut reader).map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let mut reader = ObservationReader::new(reader, &header);
+    let mut result = Vec::new();
+    while let Some((epoch, flag)) = reader
+        .next_record()
+        .map_err(|error| PyValueError::new_err(error.to_string()))?
+    {
+        if flag != 0
+            && let Some(epoch) = epoch
+        {
+            result.push((
+                unix_ns(epoch)?,
+                flag,
+                String::from_utf8(reader.pending.clone())
+                    .map_err(|error| PyValueError::new_err(error.to_string()))?,
+            ));
         }
     }
     result.sort_by_key(|event| event.0);

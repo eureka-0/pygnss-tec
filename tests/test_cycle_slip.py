@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import numpy as np
@@ -87,3 +88,60 @@ def test_receiver_state_breaks_arcs_but_midnight_alone_does_not(state_column):
     )
     assert result["arc_id"].item(5) != result["arc_id"].item(4)
     assert {"source_file", "receiver_id"}.isdisjoint(result.columns)
+
+
+@pytest.mark.parametrize(
+    "flag,record", [(4, "COMMENT"), (4, None), (5, "COMMENT"), (5, None)]
+)
+@pytest.mark.parametrize("midnight", [False, True])
+def test_metadata_events_preserve_continuous_30_tecu(flag, record, midnight):
+    start = datetime(2024, 1, 10, 23, 55, tzinfo=UTC) if midnight else None
+    header, obs = physical_observations(np.full(20, 30.0), start=start)
+    # Code noise averages to zero over the physical arc, but not over its halves.
+    obs = obs.with_columns(
+        pl.Series(
+            "C2W",
+            obs["C2W"].to_numpy() + np.r_[np.full(10, -1 / K), np.full(10, 1 / K)],
+        )
+    )
+    records = "event epoch\n" + (
+        f"{'External reset keyword is only text':<60}{record}\n" if record else ""
+    )
+    event = (obs["time"].dt.epoch("ns").item(10), flag, records)
+    header = replace(header, epoch_events=(event,))
+    result = calculate(header, obs)
+    assert result["arc_id"].n_unique() == 1
+    assert result["qc_reason"].unique().to_list() == ["ok"]
+    np.testing.assert_allclose(result["stec"], 30.0, rtol=0, atol=1e-6)
+    assert header.epoch_events == (event,)
+
+
+@pytest.mark.parametrize(
+    "flag,record",
+    [
+        (1, None),
+        (2, None),
+        (3, "MARKER NAME"),
+        (4, "REC # / TYPE / VERS"),
+        (4, "UNKNOWN HEADER"),
+        (4, "malformed"),
+        (6, None),
+    ],
+)
+def test_reset_events_split_arcs_and_preserve_raw_phase(flag, record):
+    header, obs = physical_observations(np.full(20, 30.0))
+    obs = obs.with_columns(
+        pl.Series("L1C", obs["L1C"].to_numpy() + np.r_[np.zeros(10), np.full(10, 5.0)])
+    )
+    records = "event epoch\n" + (
+        f"{'Changed receiver/header':<60}{record}\n" if record else ""
+    )
+    event = (obs["time"].dt.epoch("ns").item(10), flag, records)
+    # Duplicate/unsorted metadata must not introduce multiple state increments.
+    header = replace(header, epoch_events=(event, event))
+    result = calculate(header, obs)
+    assert result["arc_id"].to_list() == [0] * 10 + [1] * 10
+    assert "receiver_state_change" in result["qc_reason"].item(10)
+    expected = (obs["L1C"] / F1 - obs["L2W"] / F2) * C * K
+    np.testing.assert_allclose(result["stec_p_raw"], expected, rtol=0, atol=1e-7)
+    np.testing.assert_allclose(result["stec"], 30.0, rtol=0, atol=1e-6)
