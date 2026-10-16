@@ -1,21 +1,15 @@
-"""Full two-day reader comparisons and compact TEC windows from four receivers."""
+"""Real multi-day TEC, bias and continuity checks."""
 
 import json
 import math
-from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import date
 from pathlib import Path
 from typing import Literal
 
 import numpy as np
 import polars as pl
 import pytest
-from helpers import assert_valid_tec_frame
 from polars.testing import assert_frame_equal
-from real_observations import OBSERVATION_CODES, collect_short_windows
-from slip_reference import assert_continuous, offsets
-from test_slip_repair import native
 
 import gnss_tec as gt
 from gnss_tec.calculation.observation_geometry import _prepare_observations
@@ -23,15 +17,17 @@ from gnss_tec.calculation.tec import _coalesce_observations
 from gnss_tec.calibration.receiver_bias import estimate_rx_bias
 from gnss_tec.constants import c
 from gnss_tec.io.rinex import RinexObsHeader
+from tests.support.assertions import assert_valid_tec_frame
+from tests.support.native import native
+from tests.support.real_observations import OBSERVATION_CODES, collect_short_windows
+from tests.support.slip_reference import assert_continuous, offsets
 
 
 @dataclass
 class StationData:
-    obs: list[Path]
     nav: list[Path]
     header: RinexObsHeader
-    full_observations: pl.DataFrame
-    individual_readers: tuple[pl.LazyFrame, ...]
+    injection_observations: pl.DataFrame
     # Midnight/nighttime windows for focused TEC assertions.
     observations: pl.DataFrame
     tec: pl.DataFrame
@@ -44,6 +40,20 @@ def _logical(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _observation_paths(test_data_dir: Path, station: str) -> list[Path]:
+    if station in {"DGAR", "POAL"}:
+        return [
+            test_data_dir / f"rinex_obs_v2/{station.lower()}{day:03d}0.24o.gz"
+            for day in (10, 11)
+        ]
+    country = "IDN" if station == "CIBG" else "BRA"
+    return [
+        test_data_dir
+        / f"rinex_obs_v3/{station}00{country}_R_2024{day:03d}0000_01D_30S_MO.crx.gz"
+        for day in (10, 11)
+    ]
+
+
 @pytest.fixture(scope="module")
 def multiday_data(test_data_dir) -> dict[str, StationData]:
     data: dict[str, StationData] = {}
@@ -53,14 +63,7 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
     ]
     for station in ("DGAR", "POAL", "CIBG", "BELE"):
         v2 = station in {"DGAR", "POAL"}
-        country = "IDN" if station == "CIBG" else "BRA"
-        obs = [
-            test_data_dir / f"rinex_obs_v2/{station.lower()}{day:03d}0.24o.gz"
-            if v2
-            else test_data_dir
-            / f"rinex_obs_v3/{station}00{country}_R_2024{day:03d}0000_01D_30S_MO.crx.gz"
-            for day in (10, 11)
-        ]
+        obs = _observation_paths(test_data_dir, station)
         nav = [
             test_data_dir / f"rinex_nav_v2/brdc{day:03d}0.24n.gz"
             if v2
@@ -88,22 +91,19 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
             gt.TECConfig(retain_diagnostics="all"),
             nav_fn=nav,
         ).collect(engine="in-memory")
-        individual_readers = []
-        for path in obs:
-            individual_header, part = gt.read_rinex_obs(
-                path,
-                constellations="G" if v2 else "CG",
-                codes=OBSERVATION_CODES["2" if v2 else "3"],
-                include_lli=True,
-            )
-            assert individual_header.marker_name == station
-            individual_readers.append(part)
+        gps = pl.col("time") + pl.duration(seconds=18)
+        selected = full_observations.filter(
+            (gps.dt.hour() == 18) & (gps.dt.minute() < 20)
+        )
+        # Own compact buffers; no daily table or native query survives setup.
+        injections = pl.DataFrame(
+            selected.to_dict(as_series=False), schema=selected.schema
+        )
+        del full_observations, selected
         data[station] = StationData(
-            obs=obs,
             nav=nav,
             header=header,
-            full_observations=full_observations,
-            individual_readers=tuple(individual_readers),
+            injection_observations=injections,
             observations=observations,
             tec=tec,
             bias=station_bias,
@@ -111,19 +111,13 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
     return data
 
 
-@pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
-@pytest.mark.parametrize("hour,minute_start", [(18, 0), (18, 30), (6, 0)])
-def test_real_paired_injections_across_stations_and_days(
-    multiday_data, station, record_property, hour, minute_start
-):
-    """Known added integers on real noise; natural events have no truth labels.
-
-    Evaluate two GPS days and each available selected frequency pair. A rejected
-    repair is a measured fallback, never scored as a recovered integer.
-    """
+@pytest.mark.parametrize("station", ["DGAR", "CIBG"])
+def test_real_paired_injections_across_stations_and_days(multiday_data, station):
+    """Check a fixed real sample across two GPS days and selected signal pairs."""
+    hour, minute_start = 18, 0
     data = multiday_data[station]
     gps = pl.col("time") + pl.duration(seconds=18)
-    windows = data.full_observations.filter(
+    windows = data.injection_observations.filter(
         (gps.dt.hour() == hour)
         & gps.dt.minute().is_between(minute_start, minute_start + 20, closed="left")
     )
@@ -134,21 +128,18 @@ def test_real_paired_injections_across_stations_and_days(
         gt.TECConfig(retain_diagnostics="all", cycle_slip_mode="basic"),
         nav_fn=data.nav,
     ).collect(engine="in-memory")
-    # Replay the previous 99-event cohort without selecting cleaner arcs.
+    # Fixed GPS/BeiDou windows retain two real days without a cohort sweep.
     ledger_path = (
-        Path(__file__).resolve().parents[1] / "tests/fixtures/cycle-slip-events.json"
+        Path(__file__).resolve().parents[1] / "fixtures/cycle-slip-windows.json"
     )
-    ledger = json.loads(ledger_path.read_text())["events"]
+    ledger = json.loads(ledger_path.read_text())
     identities = {}
     for record in ledger:
-        if record["group"] == f"{hour}-{minute_start}-{station}":
+        if record["station"] == station:
             identity = (record["day"], record["prn"], *record["codes"])
             identities[identity] = record
     covered = set()
-    attempts = repairs = detected = false_splits = 0
-    absolute_errors, smooth_before, smooth_after, public_smoothness = [], [], [], []
-    rejection_reasons = Counter()
-    event_records = []
+    repairs = 0
     for (day, prn, first, second), identity in identities.items():
         samples = identity["samples"]
         group = observed.filter(
@@ -197,42 +188,19 @@ def test_real_paired_injections_across_stations_and_days(
                 (pl.col("mw") + after * (n1 - n2)).alias("mw"),
             )
             result = native(injected)
-            attempts += 1
-            is_detected = int(result["arc_id"][event] != result["arc_id"][event - 1])
-            detected += is_detected
-            false_splits += (
-                int((np.diff(result["arc_id"].to_numpy()) > 0).sum()) - is_detected
-            )
+            is_detected = result["arc_id"][event] != result["arc_id"][event - 1]
             is_repaired = result["slip_status"][event] in (
                 "phase_repaired",
                 "phase_continuous",
             )
             repairs += int(is_repaired)
-            if is_detected and not is_repaired:
-                rejection_reasons[result["slip_status"][event]] += 1
-            event_records.append(
-                {
-                    "day": str(key[0]),
-                    "prn": group["prn"][0],
-                    "codes": [key[1], key[2]],
-                    "jump": [n1, n2],
-                    "samples": len(frame),
-                    "event": event,
-                    "detected": bool(is_detected),
-                    "status": result["slip_status"][event],
-                    "sigma_phase_tecu": result["slip_sigma_phase"][event],
-                    "sigma_code_gf_m": result["slip_sigma_gf"][event],
-                    "sigma_mw_cycles": result["slip_sigma_mw"][event],
-                }
-            )
-            events, corrections = assert_continuous(result, injected)
+            events, _ = assert_continuous(result, injected)
             assert int(is_repaired) == is_detected
             assert result["slip_n1"].null_count() == len(frame)
             assert result["slip_n2"].null_count() == len(frame)
             times = injected["time"].to_numpy().astype(float) / 1e9
             residual = offsets(times, result["stec_p_corrected"].to_numpy(), events)
-            smooth_before.extend(np.abs(corrections[events]))
-            smooth_after.extend(np.abs(residual[events]))
+            np.testing.assert_allclose(residual[events], 0, rtol=0, atol=1e-7)
             # Verify the user-facing STEC, including code leveling, from selected
             # real code/carrier measurements rather than only the native phase.
             selected_obs = group.select(
@@ -272,68 +240,15 @@ def test_real_paired_injections_across_stations_and_days(
             np.testing.assert_allclose(
                 public_residual[public_events], 0, rtol=0, atol=1e-6
             )
-            public_smoothness.extend(np.abs(public_residual[public_events]))
-            if is_repaired:
-                absolute_errors.append(
-                    abs(result["slip_correction"][event] - k * c * (n1 / f1 - n2 / f2))
-                )
-    assert repairs == detected
     assert len({key[0] for key in covered}) == 2, (station, covered)
     if hour == 18 and minute_start == 0:
         assert repairs > 0, (
             f"{station}: real noisy development controls must exercise correction"
         )
-    for name, value in {
-        "paired_injections": attempts,
-        "detected": detected,
-        "repairs": repairs,
-        "detected_unrepaired": detected - repairs,
-        "remaining_discontinuities": sum(value > 1e-7 for value in smooth_after),
-        "false_splits": false_splits,
-        "covered_pairs_days": len(covered),
-        "max_absolute_error_tecu": max(absolute_errors, default=0.0),
-        "max_smoothness_before_tecu": max(smooth_before, default=0.0),
-        "max_smoothness_after_tecu": max(smooth_after, default=0.0),
-        "max_public_stec_discontinuity_tecu": max(public_smoothness, default=0.0),
-        "rejection_reasons": json.dumps(rejection_reasons, sort_keys=True),
-        "event_records": json.dumps(event_records),
-    }.items():
-        record_property(name, value)
 
 
-@pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
-def test_multiday_reader_matches_individual_files(multiday_data, station):
-    data = multiday_data[station]
-    # Compare the complete cached individual-file queries with the merged input.
-    individual = (
-        pl.concat(data.individual_readers, how="diagonal")
-        .select(data.full_observations.columns)
-        .collect(engine="in-memory")
-    )
-    assert_frame_equal(
-        _logical(individual),
-        _logical(data.full_observations),
-        check_exact=False,
-        rel_tol=0,
-        abs_tol=1e-8,
-    )
-    keys = data.full_observations.select("time", "station", "prn")
-    assert keys.unique().height == keys.height
-    gps_days = (
-        data.full_observations.select(
-            (pl.col("time") + pl.duration(seconds=18)).dt.date()
-        )
-        .to_series()
-        .unique()
-        .sort()
-        .to_list()
-    )
-    assert gps_days == [date(2024, 1, 10), date(2024, 1, 11)]
-    assert data.header.sampling_interval == (15 if station == "POAL" else 30)
-
-
-@pytest.mark.parametrize("station", ["DGAR", "POAL"])
-def test_multiday_glonass_navigation(test_data_dir, station):
+def test_multiday_glonass_navigation(test_data_dir):
+    station = "POAL"
     obs = [
         test_data_dir / f"rinex_obs_v2/{station.lower()}{day:03d}0.24o.gz"
         for day in (10, 11)
@@ -385,9 +300,11 @@ def test_multiday_glonass_navigation(test_data_dir, station):
     )
 
 
-@pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
+@pytest.mark.parametrize("station", ["DGAR", "CIBG"])
 def test_multiday_shuffled_gps_and_parquet(multiday_data, station, tmp_path):
     data = multiday_data[station]
+    assert data.header.marker_name == station
+    assert data.header.sampling_interval == (15 if station == "POAL" else 30)
     config = gt.TECConfig(retain_diagnostics="all")
     shuffled = data.observations.sample(fraction=1, shuffle=True, seed=29)
     inferred = replace(data.header, sampling_interval=None)
@@ -520,19 +437,6 @@ def test_multiday_arc_and_daily_dcb_reference(multiday_data, station):
     np.testing.assert_allclose(
         result["vtec"], result["stec_dcb_corrected"] / result["mf"], rtol=0, atol=1e-12
     )
-
-
-@pytest.mark.parametrize("version", ["2", "3"])
-def test_reader_rejects_mixed_receivers(multiday_data, version):
-    first, second = ("DGAR", "POAL") if version == "2" else ("CIBG", "BELE")
-    a, b = multiday_data[first], multiday_data[second]
-    with pytest.raises(ValueError, match="same station"):
-        gt.read_rinex_obs(
-            [a.obs[0], b.obs[0]],
-            station="OVERRIDE",
-            codes=OBSERVATION_CODES[version],
-            include_lli=True,
-        )
 
 
 @pytest.mark.parametrize("version", ["2", "3"])

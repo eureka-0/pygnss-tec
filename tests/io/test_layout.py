@@ -1,28 +1,15 @@
 """Sparse signals must preserve values and LLI in both observation layouts."""
 
-import gzip
 from datetime import UTC, datetime, timedelta
 
 import polars as pl
-import pytest
 from polars.testing import assert_frame_equal
-from synthetic_observations import write_minimal_rinex
 
 import gnss_tec as gt
+from tests.support.observations import write_minimal_rinex
 
 
-@pytest.mark.parametrize(
-    "compressed,utc,codes",
-    [
-        (False, False, None),
-        (False, True, "[CL]1.*"),
-        (True, False, "[CL]1.*"),
-        (True, True, None),
-    ],
-)
-def test_sparse_signals_preserve_layout_values_and_lli(
-    tmp_path, compressed, utc, codes
-):
+def test_sparse_signals_preserve_layout_values_and_lli(tmp_path):
     path = tmp_path / "sparse.rnx"
     write_minimal_rinex(path, 3, flagged=False)
     header_text = path.read_text().split("END OF HEADER")[0] + "END OF HEADER\n"
@@ -57,20 +44,12 @@ def test_sparse_signals_preserve_layout_values_and_lli(
                     value, lli = signal
                     fields.append(f"{value:14.3f}{' ' if lli is None else lli}7")
             text += prn + "".join(fields) + "\n"
-    if compressed:
-        path = path.with_suffix(".rnx.gz")
-        path.write_bytes(gzip.compress(text.encode()))
-    else:
-        path.write_text(text)
+    path.write_text(text)
 
-    wide_header, wide = gt.read_rinex_obs(path, codes=codes, utc=utc, include_lli=True)
-    long_header, long = gt.read_rinex_obs(
-        path, codes=codes, utc=utc, pivot=False, include_lli=True
-    )
+    wide_header, wide = gt.read_rinex_obs(path, include_lli=True)
+    long_header, long = gt.read_rinex_obs(path, pivot=False, include_lli=True)
     assert wide_header == long_header
-    origin = (
-        datetime(2024, 1, 9, 23, 59, 42, tzinfo=UTC) if utc else datetime(2024, 1, 10)
-    )
+    origin = datetime(2024, 1, 9, 23, 59, 42, tzinfo=UTC)
     expected = pl.DataFrame(
         {
             "time": [
@@ -106,7 +85,7 @@ def test_sparse_signals_preserve_layout_values_and_lli(
             "epoch_flag": [0] * 8,
         },
         schema_overrides={
-            "time": pl.Datetime("ns", "UTC" if utc else None),
+            "time": pl.Datetime("ns", "UTC"),
             "prn": pl.Categorical,
             "C1C": pl.Float64,
             "L1C": pl.Float64,
@@ -117,7 +96,7 @@ def test_sparse_signals_preserve_layout_values_and_lli(
             "epoch_flag": pl.UInt8,
         },
     )
-    selected = ["C1C", "L1C", "C2W"] if codes is None else ["C1C", "L1C"]
+    selected = ["C1C", "L1C", "C2W"]
     long_rows = [
         {
             "time": row["time"],

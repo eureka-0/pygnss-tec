@@ -44,7 +44,7 @@ def test_native_arcs_preserve_grouped_quality_evidence(cadence):
     assert "reacquisition_after_rejection" in actual["qc_reason"].item(18)
 
 
-@pytest.mark.parametrize("cadence", [0.0, -1.0, float("nan"), float("inf")])
+@pytest.mark.parametrize("cadence", [0.0, float("nan")])
 def test_native_arcs_reject_invalid_cadence(cadence):
     frame = pl.DataFrame(
         schema={

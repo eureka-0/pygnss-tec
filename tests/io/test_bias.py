@@ -3,9 +3,9 @@ from datetime import datetime
 
 import polars as pl
 import pytest
-from helpers import assert_has_columns
 
 import gnss_tec as gt
+from tests.support.assertions import assert_has_columns
 
 
 @pytest.mark.parametrize(

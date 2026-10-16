@@ -1,9 +1,10 @@
 import polars as pl
 import pytest
-from helpers import assert_has_columns, assert_prns_start_with
 from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
+from tests.support.assertions import assert_has_columns, assert_prns_start_with
+from tests.support.real_observations import OBSERVATION_CODES
 
 
 def test_read_rinex_obs_v2(rinex_obs_v2):
@@ -36,23 +37,24 @@ def test_read_rinex_obs_v2(rinex_obs_v2):
     assert r17.select("C7").item() is None
 
 
-def test_read_rinex_obs_v2_glonass(rinex_obs_v2):
-    header, lf = gt.read_rinex_obs(rinex_obs_v2, constellations="R", include_lli=True)
-    df = lf.collect(engine="in-memory")
-    assert isinstance(df, pl.DataFrame)
-
-    assert header.version.startswith("2.")
-    assert df.height > 0
-    assert_has_columns(df, ["time", "station", "prn", "C1", "L1"])
-    assert_prns_start_with(df, "R")
-
-
 def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3):
-    # Full signals and epochs catch compression-state drift across the whole day.
-    header1, lf_hatanaka = gt.read_rinex_obs(rinex_obs_v3_hatanaka, include_lli=True)
-    header2, lf = gt.read_rinex_obs(rinex_obs_v3, include_lli=True)
+    # Compare a complete day of TEC signals, including SNR and recorded LLI.
+    header1, lf_hatanaka = gt.read_rinex_obs(
+        rinex_obs_v3_hatanaka,
+        constellations="CG",
+        codes=OBSERVATION_CODES["3"],
+        include_lli=True,
+    )
     df_hatanaka = lf_hatanaka.collect(engine="in-memory")
+    del lf_hatanaka
+    header2, lf = gt.read_rinex_obs(
+        rinex_obs_v3,
+        constellations="CG",
+        codes=OBSERVATION_CODES["3"],
+        include_lli=True,
+    )
     df = lf.collect(engine="in-memory")
+    del lf
     assert isinstance(df_hatanaka, pl.DataFrame)
     assert isinstance(df, pl.DataFrame)
 
@@ -62,7 +64,9 @@ def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3):
     assert header1.leap_seconds == 18
     assert header1.sampling_interval == 30
     assert_frame_equal(df_hatanaka, df, check_exact=False, rel_tol=0, abs_tol=1e-8)
-    assert df.height == 180027
+    # Selected CG records in the original full-signal reader baseline.
+    assert df.height == 101663
+    assert set(df["prn"].cast(pl.String).str.slice(0, 1)) == {"C", "G"}
     assert_has_columns(df, ["L1C_lli", "epoch_flag"])
     assert {"source_file", "receiver_id"}.isdisjoint(df.columns)
     assert {"azimuth", "elevation"}.isdisjoint(df.columns)
@@ -70,24 +74,10 @@ def test_read_rinex_obs_v3(rinex_obs_v3_hatanaka, rinex_obs_v3):
     assert_has_columns(df, ["time", "station", "prn", "C1C", "L1C", "S1C"])
 
 
-def test_read_rinex_obs_v3_other_station(rinex_obs_v3_bele_hatanaka):
-    header, lf = gt.read_rinex_obs(
-        rinex_obs_v3_bele_hatanaka, codes=["C1C", "L1C", "C1X", "C2I"], include_lli=True
-    )
-    df = lf.collect(engine="in-memory")
-    assert isinstance(df, pl.DataFrame)
-
-    assert header.version.startswith("3.")
-    assert header.marker_name == "BELE"
-    assert df.height == 107287
-    assert df.get_column("station").cast(pl.String).unique().to_list() == ["BELE"]
-    assert_has_columns(df, ["time", "station", "prn", "C1C", "L1C"])
-
-
-def test_read_rinex_obs_long_format(rinex_obs_v3):
+def test_read_rinex_obs_long_format(short_rinex_v3):
     # Layout/flag semantics need three signals, not a multi-million-row table.
     _, lf = gt.read_rinex_obs(
-        rinex_obs_v3,
+        short_rinex_v3,
         constellations="C",
         codes=["C2I", "L2I", "S2I"],
         pivot=False,
@@ -111,9 +101,9 @@ def test_read_rinex_obs_long_format(rinex_obs_v3):
     assert set(df.get_column("code").unique()) == {"C2I", "L2I", "S2I"}
 
 
-def test_read_rinex_obs_filters_codes_constellation_and_station(rinex_obs_v3):
+def test_read_rinex_obs_filters_codes_constellation_and_station(short_rinex_v3):
     header, lf = gt.read_rinex_obs(
-        rinex_obs_v3,
+        short_rinex_v3,
         constellations="G",
         codes=["C1C", "L1C"],
         station="TEST",

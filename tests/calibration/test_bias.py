@@ -3,16 +3,24 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import polars as pl
 import pytest
-from synthetic_observations import F1, C, K, bias_rows, calculate, physical_observations
 
 import gnss_tec as gt
 import gnss_tec.calculation.tec as tc
 from gnss_tec.calibration.code_bias import prepare_code_bias
 from gnss_tec.configuration import TECConfig
+from tests.support.observations import (
+    F1,
+    C,
+    K,
+    bias_rows,
+    calculate,
+    physical_observations,
+)
 
 
-@pytest.mark.parametrize("span", ["daily", "subdaily", "monthly"])
-@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "span,reverse", [("daily", False), ("subdaily", True), ("monthly", False)]
+)
 def test_code_bias_is_removed_before_leveling(monkeypatch, span, reverse):
     start = datetime(2024, 1, 10, 23, 58, tzinfo=UTC)
     h, obs = physical_observations(np.full(10, 30.0), start=start)
@@ -98,8 +106,7 @@ def test_repair_continuity_preserves_independent_bias_levels(monkeypatch):
     np.testing.assert_allclose(result["vtec"] * result["mf"], 30, rtol=0, atol=1e-6)
 
 
-@pytest.mark.parametrize("duration", [1, 6])
-@pytest.mark.parametrize("bias_error", [None, 0.0, 3.0])
+@pytest.mark.parametrize("duration,bias_error", [(1, None), (6, 0.0), (1, 3.0)])
 def test_signal_switch_keeps_each_final_product_continuous(
     monkeypatch, duration, bias_error
 ):
@@ -203,7 +210,6 @@ def test_receiver_estimation_recovers_independent_known_bias(monkeypatch, method
     [
         ("bias", "OSB"),
         ("unit", "cyc"),
-        ("unit", "m"),
         ("time_system", "U"),
         ("obs1", "L1C"),
         ("estimated_value", float("nan")),

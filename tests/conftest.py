@@ -3,9 +3,9 @@ from pathlib import Path
 
 import polars as pl
 from pytest import fixture
-from real_observations import OBSERVATION_CODES, collect_short_windows
 
 import gnss_tec as gt
+from tests.support.real_observations import OBSERVATION_CODES, collect_short_windows
 
 
 @fixture(scope="session")
@@ -41,11 +41,6 @@ def rinex_obs_v3_hatanaka(test_data_dir):
 
 
 @fixture(scope="session")
-def rinex_obs_v3_bele_hatanaka(test_data_dir):
-    return test_data_dir / "rinex_obs_v3/BELE00BRA_R_20240100000_01D_30S_MO.crx.gz"
-
-
-@fixture(scope="session")
 def rinex_obs_v3(test_data_dir):
     return test_data_dir / "rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.rnx.gz"
 
@@ -66,7 +61,7 @@ def bias_gfz(test_data_dir):
 
 
 @fixture(scope="module")
-def small_observations(short_rinex_v3, rinex_nav_v3):
+def small_observations(short_rinex_v3):
     header, lf = gt.read_rinex_obs(
         short_rinex_v3,
         constellations="CG",

@@ -15,7 +15,7 @@ from gnss_tec.calculation.observation_geometry import (
     _prepare_observations,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures/geometry"
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/geometry"
 COORDINATES = ["_sat_x", "_sat_y", "_sat_z", "rx_lat", "rx_lon", "_rx_alt"]
 
 
@@ -114,10 +114,7 @@ def test_native_geometry_requires_float64_coordinates():
             _azimuth_elevation(record_batch(invalid))
 
 
-@pytest.mark.parametrize("engine", ["in-memory", "streaming"])
-def test_real_receiver_header_and_gps_beidou_geometry(
-    short_rinex_v3, rinex_nav_v3, engine
-):
+def test_real_receiver_header_and_gps_beidou_geometry(short_rinex_v3, rinex_nav_v3):
     header, observations = gt.read_rinex_obs(short_rinex_v3, constellations="CG")
     np.testing.assert_allclose(
         header.rx_geodetic,
@@ -129,7 +126,7 @@ def test_real_receiver_header_and_gps_beidou_geometry(
     prepared = (
         _prepare_observations(observations, header, pl.col("time"), rinex_nav_v3)
         .select(expected.columns)
-        .collect(engine=engine)
+        .collect(engine="streaming")
     )
     actual = expected.select("_utc_ns", "prn").join(
         prepared.with_columns(pl.col("prn").cast(pl.String)),

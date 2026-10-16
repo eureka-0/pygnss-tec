@@ -9,15 +9,15 @@ from gnss_tec.calculation.mapping_functions import (
 from gnss_tec.configuration import TECConfig
 
 
-@pytest.mark.parametrize("mapping", [single_layer_model, modified_single_layer_model])
 @pytest.mark.parametrize(
-    "lat,lon,az,el",
+    "mapping,lat,lon,az,el",
     [
-        (89.0, 10.0, 0.0, 10.0),
-        (-89.0, -10.0, 180.0, 10.0),
-        (0.0, 179.0, 90.0, 5.0),
-        (45.0, 200.0, 40.0, 90.0),
-        (90.0, 0.0, 180.0, 90.0),
+        (single_layer_model, 89.0, 10.0, 0.0, 10.0),
+        (modified_single_layer_model, -89.0, -10.0, 180.0, 10.0),
+        (single_layer_model, 0.0, 179.0, 90.0, 5.0),
+        (modified_single_layer_model, 0.0, 179.0, 90.0, 5.0),
+        (single_layer_model, 45.0, 200.0, 40.0, 90.0),
+        (modified_single_layer_model, 90.0, 0.0, 180.0, 90.0),
     ],
 )
 def test_ipp_matches_independent_cartesian_great_circle(mapping, lat, lon, az, el):

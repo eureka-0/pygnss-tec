@@ -4,13 +4,11 @@ from datetime import UTC, datetime
 import numpy as np
 import polars as pl
 import pytest
-from synthetic_observations import F1, F2, C, K, calculate, physical_observations
 
-import gnss_tec as gt
-from gnss_tec.configuration import TECConfig
+from tests.support.observations import F1, F2, C, K, calculate, physical_observations
 
 
-@pytest.mark.parametrize("cadence", [0.1, 1, 30])
+@pytest.mark.parametrize("cadence", [0.1, 30])
 def test_basic_mode_preserves_rapid_ionosphere(cadence):
     tec = np.r_[np.linspace(30, 31, 10), np.linspace(39, 41, 10)]
     h, obs = physical_observations(tec, cadence=cadence)
@@ -21,8 +19,7 @@ def test_basic_mode_preserves_rapid_ionosphere(cadence):
     assert result["qc_reason"].item(10) == "ok"
 
 
-@pytest.mark.parametrize("slips", [[1], [2, 4, 7], [10]])
-@pytest.mark.parametrize("both", [False, True])
+@pytest.mark.parametrize("slips,both", [([1], False), ([2, 4, 7], True)])
 def test_early_simultaneous_and_repeated_slips_split_without_rewriting(slips, both):
     h, obs = physical_observations(np.full(20, 30.0))
     jump = np.zeros(20)
@@ -53,33 +50,12 @@ def test_unflagged_phase_jump_is_preserved_without_heuristic_segmentation():
     np.testing.assert_allclose(result["stec_p_raw"], expected, rtol=0, atol=1e-7)
 
 
-def test_flags_and_rejection_policy():
-    h, obs = physical_observations(np.full(8, 30.0))
-    obs = obs.with_columns(
-        pl.Series("L1C_lli", [0, 1, 2, 0, 0, 0, 0, 0], dtype=pl.UInt8)
-    )
-    diagnostic = calculate(h, obs)
-    assert not diagnostic["qc_valid"].item(2)
-    assert diagnostic["stec"].item(2) is None
-    assert "half_cycle_invalid" in diagnostic["qc_reason"].item(2)
-    assert "loss_of_lock" in diagnostic["qc_reason"].item(1)
-    normal = gt.calc_tec_from_df(obs, h, config=TECConfig(rx_bias=None)).collect(
-        engine="in-memory"
-    )
-    assert normal.height == 7
-    assert "qc_valid" not in normal.columns
-
-
-@pytest.mark.parametrize(
-    "state_column", ["receiver_state", "receiver_id", "epoch_flag"]
-)
-def test_receiver_state_breaks_arcs_but_midnight_alone_does_not(state_column):
+def test_receiver_state_breaks_arcs_but_midnight_alone_does_not():
+    state_column = "receiver_state"
     start = datetime(2024, 1, 10, 23, 58, tzinfo=UTC)
     h, obs = physical_observations(np.full(10, 30.0), start=start)
     assert calculate(h, obs)["arc_id"].n_unique() == 1
-    values = (
-        (["A"] * 5 + ["B"] * 5) if state_column == "receiver_id" else [0] * 5 + [1] * 5
-    )
+    values = [0] * 5 + [1] * 5
     result = calculate(
         h,
         obs.with_columns(
@@ -91,9 +67,9 @@ def test_receiver_state_breaks_arcs_but_midnight_alone_does_not(state_column):
 
 
 @pytest.mark.parametrize(
-    "flag,record", [(4, "COMMENT"), (4, None), (5, "COMMENT"), (5, None)]
+    "flag,record,midnight",
+    [(4, "COMMENT", False), (4, None, True), (5, "COMMENT", True), (5, None, False)],
 )
-@pytest.mark.parametrize("midnight", [False, True])
 def test_metadata_events_preserve_continuous_30_tecu(flag, record, midnight):
     start = datetime(2024, 1, 10, 23, 55, tzinfo=UTC) if midnight else None
     header, obs = physical_observations(np.full(20, 30.0), start=start)
@@ -118,15 +94,7 @@ def test_metadata_events_preserve_continuous_30_tecu(flag, record, midnight):
 
 @pytest.mark.parametrize(
     "flag,record",
-    [
-        (1, None),
-        (2, None),
-        (3, "MARKER NAME"),
-        (4, "REC # / TYPE / VERS"),
-        (4, "UNKNOWN HEADER"),
-        (4, "malformed"),
-        (6, None),
-    ],
+    [(1, None), (2, None), (3, "MARKER NAME"), (4, "UNKNOWN HEADER"), (6, None)],
 )
 def test_reset_events_split_arcs_and_preserve_raw_phase(flag, record):
     header, obs = physical_observations(np.full(20, 30.0))

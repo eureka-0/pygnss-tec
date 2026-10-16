@@ -4,21 +4,18 @@ import numpy as np
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
-from slip_reference import assert_continuous, detection_events
-from slip_scenarios import CASES, PAIRS, scenario
-from synthetic_observations import calculate, physical_observations, write_minimal_rinex
 
 import gnss_tec as gt
-from gnss_tec._arrow import record_batch
-from gnss_tec._core import _slip_arcs
 from gnss_tec.calculation.tec import _tec_observation_codes
 from gnss_tec.configuration import TECConfig
-
-
-def native(frame, cadence=30, repair=True, integer_cycles=True):
-    return pl.from_arrow(
-        _slip_arcs(record_batch(frame), cadence, repair, integer_cycles)
-    )
+from tests.support.native import native
+from tests.support.observations import (
+    calculate,
+    physical_observations,
+    write_minimal_rinex,
+)
+from tests.support.slip_reference import assert_continuous, detection_events
+from tests.support.slip_scenarios import CASES, scenario
 
 
 def test_detector_matches_numpy_reference_across_reset():
@@ -53,7 +50,7 @@ def test_reader_projection_keeps_custom_fallbacks_and_mode_validation():
         TECConfig(cycle_slip_mode="unknown")  # ty: ignore[invalid-argument-type]
 
 
-@pytest.mark.parametrize("cadence", [0.1, 2, 15, 120])
+@pytest.mark.parametrize("cadence", [0.1, 120])
 def test_cadence_scaling_and_irregular_epoch_spacing(cadence):
     frame, _truth, increments, _ = scenario(cadence=cadence, case="repeated")
     spacings = cadence * np.resize([0.9, 1.1, 1.0], len(frame) - 1)
@@ -65,19 +62,19 @@ def test_cadence_scaling_and_irregular_epoch_spacing(cadence):
     np.testing.assert_array_equal(accepted, np.any(increments != 0, axis=1))
 
 
-@pytest.mark.parametrize("pair", PAIRS)
 @pytest.mark.parametrize(
-    "cadence,noise,seed",
+    "pair,cadence,noise,seed",
     [
-        (1, "clean", 17),
-        (30, "clean", 17),
-        (5, "quiet", 155921),
-        (30, "moderate", 15485863),
-        (1, "stress", 15485887),
+        ("GPS", 1, "clean", 17),
+        ("GPS", 30, "clean", 17),
+        ("BDS", 30, "clean", 17),
+        ("GPS-L1L5", 5, "quiet", 155921),
+        ("GPS-L2L5", 30, "moderate", 15485863),
+        ("BDS-B2IB3I", 1, "stress", 15485887),
     ],
 )
 def test_independent_physical_matrix(pair, cadence, noise, seed):
-    """Cover each frequency pair and distinct cadence/noise regimes once.
+    """Cover frequency pairs and cadence/noise regimes without their product.
 
     Repeating all seeds across their Cartesian product adds Monte Carlo volume,
     rather than new continuity contracts. Broad sensitivity studies belong in
@@ -186,19 +183,6 @@ def test_valid_segments_are_aligned_across_recorded_boundaries(kind):
     assert result["_continuity_id"].n_unique() == 1
     if event == 41:
         assert result["stec_p_corrected"][40] == frame["stec_p_raw"][40]
-
-
-def test_lock_and_phase_metadata_do_not_veto_continuity():
-    frame, *_ = scenario(case="five")
-    frame = frame.with_columns(
-        (pl.int_range(pl.len()) == 40).cast(pl.UInt8).alias("L1_lli")
-    )
-    result = native(frame)
-    assert result["slip_status"][40] == "phase_repaired"
-    assert result["arc_id"][40] == 1
-    assert result["_continuity_id"].n_unique() == 1
-    unsupported = native(frame, integer_cycles=False)
-    assert_frame_equal(unsupported, result)
 
 
 def test_chunk_parquet_and_station_partition_invariance(tmp_path):

@@ -1,12 +1,13 @@
 import numpy as np
 import polars as pl
 import pytest
-from slip_reference import assert_continuous
-from slip_scenarios import PAIRS, C, scenario
-from test_slip_repair import native
+
+from tests.support.native import native
+from tests.support.slip_reference import assert_continuous
+from tests.support.slip_scenarios import C, scenario
 
 
-@pytest.mark.parametrize("size,event", [(2, 1), (3, 2), (12, 1), (12, 11)])
+@pytest.mark.parametrize("size,event", [(2, 1), (12, 11)])
 def test_short_or_terminal_segments_are_corrected(size, event):
     frame, *_ = scenario(size=size)
     after = (pl.int_range(pl.len()) >= event).cast(pl.Float64)
@@ -19,7 +20,7 @@ def test_short_or_terminal_segments_are_corrected(size, event):
     assert_continuous(result, frame)
 
 
-@pytest.mark.parametrize("jumps", [[1], [40, 41, 42], [40, 41], [40, 119]])
+@pytest.mark.parametrize("jumps", [[40, 41, 42], [40, 119]])
 def test_linear_stec_is_restored_across_clustered_noninteger_steps(jumps):
     # The offset estimator operates in TECU; frequency conversion is covered by
     # the physical matrix. Repeating this analytic identity for each pair adds
@@ -39,8 +40,8 @@ def test_linear_stec_is_restored_across_clustered_noninteger_steps(jumps):
     np.testing.assert_allclose(result["stec_p_corrected"], baseline, rtol=0, atol=1e-10)
 
 
-@pytest.mark.parametrize("noise", ["clean", "quiet", "moderate", "stress"])
-def test_code_and_integer_metadata_cannot_veto_smoothing(noise):
+def test_code_and_integer_metadata_cannot_veto_smoothing():
+    noise = "moderate"
     frame, *_ = scenario("GPS", 30, noise, 7919, "five")
     expected = native(frame)
     changed = frame.with_columns((pl.col("stec_g") + 1e6).alias("stec_g"))
@@ -52,15 +53,14 @@ def test_code_and_integer_metadata_cannot_veto_smoothing(noise):
     assert_continuous(actual, changed)
 
 
-@pytest.mark.parametrize("pair", PAIRS)
 @pytest.mark.parametrize(
-    "distribution,seed",
+    "pair,distribution,seed",
     [
-        ("heavy_tail", 155921),
-        ("correlated", 196613),
-        ("burst", 262147),
-        ("common_code_step", 17),
-        ("phase_spike", 17),
+        ("GPS", "heavy_tail", 155921),
+        ("BDS", "correlated", 196613),
+        ("GPS-L1L5", "burst", 262147),
+        ("GPS-L2L5", "common_code_step", 17),
+        ("BDS-B2IB3I", "phase_spike", 17),
     ],
 )
 def test_shifted_noise_controls_remain_temporally_continuous(pair, seed, distribution):

@@ -1,0 +1,62 @@
+[
+  {
+    "station": "DGAR",
+    "day": "2024-01-10",
+    "prn": "G12",
+    "codes": [
+      "C1",
+      "C2"
+    ],
+    "samples": 40
+  },
+  {
+    "station": "DGAR",
+    "day": "2024-01-11",
+    "prn": "G12",
+    "codes": [
+      "C1",
+      "C2"
+    ],
+    "samples": 40
+  },
+  {
+    "station": "CIBG",
+    "day": "2024-01-10",
+    "prn": "C01",
+    "codes": [
+      "C2I",
+      "C6I"
+    ],
+    "samples": 40
+  },
+  {
+    "station": "CIBG",
+    "day": "2024-01-10",
+    "prn": "G12",
+    "codes": [
+      "C1C",
+      "C2W"
+    ],
+    "samples": 40
+  },
+  {
+    "station": "CIBG",
+    "day": "2024-01-11",
+    "prn": "C01",
+    "codes": [
+      "C2I",
+      "C6I"
+    ],
+    "samples": 40
+  },
+  {
+    "station": "CIBG",
+    "day": "2024-01-11",
+    "prn": "G12",
+    "codes": [
+      "C1C",
+      "C2W"
+    ],
+    "samples": 40
+  }
+]

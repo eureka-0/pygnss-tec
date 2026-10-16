@@ -6,30 +6,31 @@ import sys
 
 import pytest
 from polars.testing import assert_frame_equal
-from synthetic_observations import write_minimal_rinex
 
 import gnss_tec as gt
+from tests.support.observations import write_minimal_rinex
 
 
-@pytest.mark.parametrize("entry", ["_read_obs", "_satellite_positions"])
-@pytest.mark.parametrize("suffix", [".rnx", ".rnx.gz"])
-def test_native_file_open_error_is_recoverable(tmp_path, entry, suffix):
+def test_native_file_open_error_is_recoverable(tmp_path):
     # Check in a child process: panic=abort must not terminate the pytest process.
     code = """
 import sys
 from gnss_tec import _core
-try:
-    if sys.argv[1] == "_read_obs":
-        _core._read_obs([sys.argv[2]], None, None, True)
-    else:
-        _core._satellite_positions([sys.argv[2]], [], [])
-except OSError:
-    pass
-else:
-    raise AssertionError("Expected a recoverable OSError")
+for suffix in (".rnx", ".rnx.gz"):
+    path = sys.argv[1] + suffix
+    for entry in ("_read_obs", "_satellite_positions"):
+        try:
+            if entry == "_read_obs":
+                _core._read_obs([path], None, None, True)
+            else:
+                _core._satellite_positions([path], [], [])
+        except OSError:
+            pass
+        else:
+            raise AssertionError((entry, path, "Expected a recoverable OSError"))
 """
     result = subprocess.run(
-        [sys.executable, "-c", code, entry, str(tmp_path / ("missing" + suffix))],
+        [sys.executable, "-c", code, str(tmp_path / "missing")],
         capture_output=True,
         text=True,
         timeout=30,
@@ -38,8 +39,7 @@ else:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize("version,compressed", [(2, False), (3, True)])
 def test_event_text_survives_crlf_and_unterminated_last_line(
     tmp_path, version, compressed
 ):

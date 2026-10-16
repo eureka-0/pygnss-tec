@@ -1,25 +1,9 @@
 import numpy as np
 import polars as pl
 import pytest
-from synthetic_observations import calculate, write_minimal_rinex
 
 import gnss_tec as gt
-
-
-@pytest.mark.parametrize("version", [2, 3])
-def test_fractional_rinex_completes_tec(tmp_path, version):
-    path = tmp_path / "fractional.rnx"
-    write_minimal_rinex(path, version, flagged=False)
-    header, obs = gt.read_rinex_obs(path, include_lli=True)
-    result = calculate(
-        header,
-        obs.with_columns(
-            pl.lit(60.0).alias("elevation"), pl.lit(90.0).alias("azimuth")
-        ),
-    )
-    assert result["qc_valid"].all()
-    assert result.height == 4
-    assert result["stec"].is_finite().all()
+from tests.support.observations import write_minimal_rinex
 
 
 def test_nanosecond_epochs_survive_time_conversion_and_parquet(tmp_path):

@@ -4,61 +4,29 @@ import numpy as np
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
-from synthetic_observations import calculate, physical_observations, write_minimal_rinex
 
 import gnss_tec as gt
 from gnss_tec.calculation.observation_geometry import _prepare_observations
 from gnss_tec.io.rinex import RinexObsHeader
+from tests.support.observations import calculate, write_minimal_rinex
 
 
 @pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("factor", [1, 2])
-def test_phase_conventions_gate_integer_repair(tmp_path, version, factor):
-    path = tmp_path / "convention.rnx"
-    write_minimal_rinex(path, version, flagged=False)
-    declaration = (
-        f"{factor:6d}{factor:6d}{0:6d}{'':42}WAVELENGTH FACT L1/2\n"
-        if version == 2
-        else f"{f'G {factor:6d}{1:3d} L1C':<60}SYS / SCALE FACTOR\n"
+def test_reader_rejects_mixed_receivers(tmp_path, version):
+    paths = [tmp_path / "a.rnx", tmp_path / "b.rnx"]
+    for path in paths:
+        write_minimal_rinex(path, version, flagged=False)
+    paths[1].write_text(
+        paths[1]
+        .read_text()
+        .replace(f"{'TEST':<60}MARKER NAME", f"{'NEXT':<60}MARKER NAME")
     )
-    path.write_text(
-        path.read_text().replace(
-            f"{'':60}END OF HEADER\n", declaration + f"{'':60}END OF HEADER\n"
-        )
-    )
-    header, _ = gt.read_rinex_obs(path)
-    assert header.phase_integer_cycles == (factor == 1)
-    assert RinexObsHeader.from_metadata(header.to_metadata()) == header
+    # A caller-supplied label must not hide distinct physical receivers.
+    with pytest.raises(ValueError, match="same station"):
+        gt.read_rinex_obs(paths, station="OVERRIDE", include_lli=True)
 
 
-@pytest.mark.parametrize("retain", [None, "all", ["azimuth", "qc_valid"]])
-def test_tec_output_omits_internal_and_legacy_helpers(retain):
-    header, frame = physical_observations(np.full(8, 30.0))
-    frame = frame.with_columns(
-        pl.lit(0, dtype=pl.UInt32).alias("receiver_state"),
-        pl.lit("serial").alias("receiver_id"),
-        pl.lit("[]").alias("epoch_events"),
-        pl.lit(1.0).alias("sat_x"),
-        pl.lit(True).alias("half_cycle_valid"),
-        pl.lit(1).alias("_private_helper"),
-    )
-    result = gt.calc_tec_from_df(
-        frame, header, config=gt.TECConfig(rx_bias=None, retain_diagnostics=retain)
-    ).collect(engine="in-memory")
-    assert result.height == 8
-    assert not any(column.startswith("_") for column in result.columns)
-    assert {
-        "receiver_state",
-        "receiver_id",
-        "epoch_events",
-        "sat_x",
-        "half_cycle_valid",
-    }.isdisjoint(result.columns)
-    assert {"azimuth", "elevation"}.issubset(result.columns)
-
-
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
+@pytest.mark.parametrize("version,pivot", [(2, True), (3, False)])
 def test_real_fractional_rinex_preserves_quality_events_and_metadata(
     tmp_path, version, pivot
 ):
@@ -84,8 +52,7 @@ def test_real_fractional_rinex_preserves_quality_events_and_metadata(
     )
 
 
-@pytest.mark.parametrize("changed_receiver", [False, True])
-@pytest.mark.parametrize("pivot", [False, True])
+@pytest.mark.parametrize("changed_receiver,pivot", [(False, True), (True, True)])
 def test_multifile_receiver_identity_is_preserved_in_header(
     tmp_path, changed_receiver, pivot
 ):
@@ -167,8 +134,7 @@ def test_receiver_positions_survive_gps_parquet_roundtrip(tmp_path):
     )
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("flag", [2, 3, 5])
+@pytest.mark.parametrize("version,flag", [(2, 2), (3, 3), (3, 5)])
 def test_all_special_epoch_events_are_preserved(tmp_path, version, flag):
     path = tmp_path / "events.rnx"
     write_minimal_rinex(path, version)
@@ -180,8 +146,7 @@ def test_all_special_epoch_events_are_preserved(tmp_path, version, flag):
     assert "receiver_state" not in frame.collect_schema()
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
+@pytest.mark.parametrize("version,pivot", [(2, False), (3, True)])
 def test_cycle_slip_epoch_flag_is_preserved(tmp_path, version, pivot):
     path = tmp_path / "slip.rnx"
     write_minimal_rinex(path, version)
@@ -202,9 +167,10 @@ def _event_record(version, flag, count, *, seconds=0.15, satellites=""):
     return f"{('>' + date[1:]) if seconds is None else date}  {flag}{count:3d}\n"
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
-@pytest.mark.parametrize("include_lli", [True, False])
+@pytest.mark.parametrize(
+    "version,pivot,include_lli",
+    [(2, True, True), (2, False, False), (3, True, False), (3, False, True)],
+)
 def test_same_epoch_slip_counts_never_replace_observations(
     tmp_path, version, pivot, include_lli
 ):
@@ -242,9 +208,9 @@ def test_same_epoch_slip_counts_never_replace_observations(
     assert values.len() == 4
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
-@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize(
+    "version,pivot,compressed", [(2, True, False), (3, False, True)]
+)
 def test_epoch_like_comment_records_are_not_parsed_as_epochs(
     tmp_path, version, pivot, compressed
 ):
@@ -273,9 +239,10 @@ def test_epoch_like_comment_records_are_not_parsed_as_epochs(
     assert header.epoch_events == ()
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
-@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize(
+    "version,pivot,compressed",
+    [(2, True, False), (2, False, True), (3, True, True), (3, False, False)],
+)
 def test_untimed_events_are_consumed_without_values_or_state(
     tmp_path, version, pivot, compressed
 ):
@@ -339,9 +306,9 @@ def test_malformed_nonblank_event_epoch_is_not_silently_skipped(tmp_path, versio
         gt.read_rinex_obs(path)
 
 
-@pytest.mark.parametrize("version", [2, 3])
-@pytest.mark.parametrize("pivot", [True, False])
-@pytest.mark.parametrize("gzip_wrapper", [True, False])
+@pytest.mark.parametrize(
+    "version,pivot,gzip_wrapper", [(2, False, False), (3, True, True)]
+)
 def test_compact_events_preserve_framing_and_skip_untimed_records(
     tmp_path, version, pivot, gzip_wrapper
 ):

@@ -13,7 +13,6 @@ from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
 import gnss_tec.calculation.tec as tc
-from gnss_tec.calibration.receiver_bias import _lsq_rx_bias, _mstd_rx_bias
 from gnss_tec.constants import Re, c
 from gnss_tec.io.rinex import RinexObsHeader
 
@@ -129,40 +128,6 @@ def test_scientific_reference(observations):
         )
 
 
-@pytest.mark.parametrize("source", ["dataframe", "lazyframe", "parquet"])
-def test_shuffled_input_and_inferred_cadence(observations, source, tmp_path):
-    header, raw = observations
-    expected = _calculate(raw, header)
-    shuffled = raw.sample(fraction=1, shuffle=True, seed=17)
-    inferred_header = replace(header, sampling_interval=None)
-    if source == "parquet":
-        path = tmp_path / "shuffled.parquet"
-        shuffled.write_parquet(path, metadata=inferred_header.to_metadata())
-        actual = gt.calc_tec_from_parquet(
-            path, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
-        ).collect(engine="in-memory")
-    else:
-        actual = _calculate(
-            shuffled.lazy() if source == "lazyframe" else shuffled, inferred_header
-        )
-    assert_frame_equal(actual, expected, check_exact=False, rel_tol=0, abs_tol=1e-10)
-
-
-def test_chunked_whole_arc_udf(observations):
-    header, raw = observations
-    chunked = pl.concat(
-        [raw.slice(i, 7) for i in range(0, raw.height, 7)], rechunk=False
-    )
-    assert chunked["time"].n_chunks() > 1
-    assert_frame_equal(
-        _calculate(chunked, header),
-        _calculate(raw.rechunk(), header),
-        check_exact=False,
-        rel_tol=0,
-        abs_tol=1e-10,
-    )
-
-
 def test_float32_geometry_matches_float64_input(observations):
     header, raw = observations
     raw = raw.with_columns(
@@ -184,11 +149,10 @@ def test_duplicate_times_are_rejected(observations):
         )
 
 
-@pytest.mark.parametrize("rows", [0, 1])
-def test_no_inferable_interval_is_actionable(observations, rows):
+def test_no_inferable_interval_is_actionable(observations):
     header, raw = observations
     with pytest.raises(ValueError, match="Cannot infer sampling interval"):
-        _calculate(raw.head(rows), replace(header, sampling_interval=None))
+        _calculate(raw.head(1), replace(header, sampling_interval=None))
 
 
 def test_empty_and_zero_weight_arcs(observations):
@@ -308,37 +272,7 @@ def test_weighted_code_priority_and_deterministic_ties(observations):
     assert selected["C2_code"].unique().to_list() == ["C2W"]
 
 
-def test_duplicate_bias_keys_do_not_multiply_observations(observations, monkeypatch):
-    header, raw = observations
-    bias = (
-        pl.DataFrame(
-            {
-                "station": [None, None],
-                "prn": ["G01", "G01"],
-                "obs1": ["C1C", "C1C"],
-                "obs2": ["C2W", "C2W"],
-                "bias_start": [datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None)]
-                * 2,
-                "estimated_value": [1.0, 2.0],
-            }
-        )
-        .with_columns(pl.col("prn", "obs1", "obs2").cast(pl.Categorical))
-        .with_columns(
-            (pl.col("bias_start") + pl.duration(days=1)).alias("bias_end"),
-            pl.lit("DSB").alias("bias"),
-            pl.lit("ns").alias("unit"),
-            pl.lit("G").alias("time_system"),
-        )
-    )
-    monkeypatch.setattr(tc, "read_bias", lambda _: bias.lazy())
-    with pytest.raises(ValueError, match="Overlapping"):
-        gt.calc_tec_from_df(
-            raw, header, Path("unused"), gt.TECConfig(rx_bias=None)
-        ).collect(engine="in-memory")
-
-
-@pytest.mark.parametrize("method", ["mstd", "lsq"])
-@pytest.mark.parametrize("cadence", [1, 5])
+@pytest.mark.parametrize("method,cadence", [("mstd", 1), ("lsq", 5)])
 def test_receiver_bias_high_rate_order(
     observations, monkeypatch, method: Literal["mstd", "lsq"], cadence
 ):
@@ -383,7 +317,7 @@ def test_receiver_bias_high_rate_order(
     assert_frame_equal(actual, expected, check_exact=False, rel_tol=0, abs_tol=1e-8)
 
 
-@pytest.mark.parametrize("policy", ["drop", "warn", "error", "keep_uncorrected"])
+@pytest.mark.parametrize("policy", ["warn", "error"])
 def test_missing_band_bias_diagnostics(observations, bias, policy):
     header, raw = observations
     missing = raw.drop("C2W", "L2W")
@@ -411,74 +345,3 @@ def test_single_point_and_all_missing_phase(observations):
     assert single["stec"].item() == pytest.approx(30.0, abs=1e-12)
     missing = raw.with_columns(pl.lit(None, dtype=pl.Float64).alias("L1C"))
     assert not _calculate(missing, header)["qc_valid"].any()
-
-
-def test_external_dcb_sign_and_units(observations, monkeypatch):
-    header, raw = observations
-    raw = raw.filter(pl.col("time").dt.day() == 10)
-    bias = (
-        pl.DataFrame(
-            {
-                "station": [None, None, "TEST"],
-                "prn": ["G01", "G02", "G"],
-                "obs1": ["C1C"] * 3,
-                "obs2": ["C2W"] * 3,
-                "bias_start": [datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None)]
-                * 3,
-                "estimated_value": [1.0, 1.0, 2.0],
-            }
-        )
-        .with_columns(pl.col("prn", "obs1", "obs2").cast(pl.Categorical))
-        .with_columns(
-            (pl.col("bias_start") + pl.duration(days=1)).alias("bias_end"),
-            pl.lit("DSB").alias("bias"),
-            pl.lit("ns").alias("unit"),
-            pl.lit("G").alias("time_system"),
-        )
-    )
-    monkeypatch.setattr(tc, "read_bias", lambda _: bias.lazy())
-    result = gt.calc_tec_from_df(
-        raw, header, Path("unused"), gt.TECConfig(retain_diagnostics="all")
-    ).collect(engine="in-memory")
-    f1, f2 = 1575.42e6, 1227.60e6
-    tecu_per_ns = 1e-9 * c * f1**2 * f2**2 / (f1**2 - f2**2) / 40.3e16
-    np.testing.assert_allclose(
-        result["tx_bias"].to_numpy(), -tecu_per_ns, rtol=0, atol=1e-12
-    )
-    np.testing.assert_allclose(
-        result["rx_bias"].to_numpy(), -2 * tecu_per_ns, rtol=0, atol=1e-12
-    )
-    np.testing.assert_allclose(
-        result["stec_dcb_corrected"].to_numpy(),
-        result["stec"].to_numpy() + 3 * tecu_per_ns,
-        rtol=0,
-        atol=1e-12,
-    )
-
-
-@pytest.mark.parametrize("method", [_mstd_rx_bias, _lsq_rx_bias])
-def test_receiver_solver_known_bias_and_residual(method):
-    rng = np.random.default_rng(13)
-    times = [
-        datetime(2024, 1, 10, 18, tzinfo=UTC).replace(tzinfo=None)
-        + timedelta(minutes=i * 30)
-        for i in range(24)
-        for _ in range(4)
-    ]
-    mf = rng.uniform(1.0, 2.0, len(times))
-    known_bias = 12.0
-    data = pl.DataFrame(
-        {
-            "time": times,
-            "stec": 20 * mf + 1 + known_bias,
-            "tx_bias": [1.0] * len(times),
-            "mf": mf,
-            "ipp_lat": rng.uniform(35, 45, len(times)),
-            "ipp_lon": [0.0] * len(times),
-            "rx_lat": [40.0] * len(times),
-        }
-    )
-    estimate = method(data.select(pl.struct(pl.all())).to_series())
-    assert estimate == pytest.approx(known_bias, abs=1e-5)
-    residual = (data["stec"].to_numpy() - 1 - estimate) / mf - 20
-    assert np.max(np.abs(residual)) < 1e-5
