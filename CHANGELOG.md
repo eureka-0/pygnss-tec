@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Declare timezone data as a Windows runtime dependency so UTC timestamps can be converted to Python objects without a system IANA timezone database.
 - Keep flag-6 cycle-slip counts out of wide/long observation values and preserve timestamped slip payloads in event metadata, independently of LLI output.
 - Consume and omit blank-epoch special events without inheriting timestamps or receiver state, including RINEX 2 satellite/observation continuations and supported gzip/Hatanaka and multi-file input paths.
 - Recognize fixed-column COMMENT records before epoch parsing, including RINEX 3 comments whose free text starts with `>`.

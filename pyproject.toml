@@ -18,6 +18,7 @@ dependencies = [
     "polars>=1.40.0,<3",
     "pyarrow>=21.0.0",
     "scipy>=1.16.0",
+    "tzdata>=2026.5 ; sys_platform == 'win32'",
 ]
 
 [project.urls]
