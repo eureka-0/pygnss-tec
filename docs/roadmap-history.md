@@ -39,7 +39,7 @@ Delivered in commit `d7dbbcb`. Permanent regressions remain in the reader/event,
 | R03 | Skip special events with blank epoch fields | P2 | done | — | 2026-10-15 | Untimed blocks are consumed without timestamps/state across supported inputs; standalone COMMENT records remain readable, including text beginning with `>`. |
 | R04 | Distinguish metadata events from ambiguity resets | P2 | done | — | 2026-10-15 | Reviewed classification preserves metadata-event continuity and true-reset boundaries without rewriting phase; explicit receiver state remains authoritative. |
 
-The [reader/event policy](usage.md#observation-quality-and-scientific-conventions) documents conservative resets and retained metadata.
+The [reader/event policy](guide/rinex.md#header-and-event-metadata) documents conservative resets and retained metadata.
 Applying new event-header values to observations/geometry and per-satellite flag-6 interpretation remain outside this delivery.
 The existing grouped missing-SNR policy is preserved; broader policy changes belong to T007.
 GF/MW detection and numerical phase repair were not implemented by these fixes.

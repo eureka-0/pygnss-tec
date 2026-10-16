@@ -5,21 +5,18 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Tests](https://github.com/Eureka-0/pygnss-tec/actions/workflows/test.yml/badge.svg)](https://github.com/Eureka-0/pygnss-tec/actions/workflows/test.yml)
 [![Publish](https://github.com/Eureka-0/pygnss-tec/actions/workflows/publish.yml/badge.svg)](https://github.com/Eureka-0/pygnss-tec/actions/workflows/publish.yml)
+[![Documentation](https://github.com/Eureka-0/pygnss-tec/actions/workflows/docs.yml/badge.svg)](https://github.com/Eureka-0/pygnss-tec/actions/workflows/docs.yml)
 
-PyGNSS-TEC is a high-performance Python package leveraging Rust acceleration, designed for calculating and processing Total Electron Content (TEC) data from Global Navigation Satellite System (GNSS) observations. The package provides tools for RINEX file reading, TEC calculation, and DCB correction to support ionospheric studies.
+PyGNSS-TEC is a high-performance Python package leveraging Rust acceleration, designed for calculating and processing Total Electron Content (TEC) data from Global Navigation Satellite System (GNSS) observations.
+The package provides tools for RINEX file reading, TEC calculation, and DCB correction to support ionospheric studies.
 
 > **Warning**: This package is under active development and may undergo significant changes. It is not recommended for production use until it reaches a stable release (v1.0.0).
 
 ## Features
 
-- **RINEX File Reading**: Efficient reading and parsing of RINEX GNSS observation files using [rinex crate](https://crates.io/crates/rinex) (see [benchmarks](#benchmarks) for details).
-
+- **High-Performance**: Efficiently read GNSS RINEX files using [rinex crate](https://crates.io/crates/rinex), calculate and calibrate TEC from dual-frequency GNSS observations using Rust and [polars](https://pola.rs/) lazy evaluation (see [benchmarks](https://github.com/eureka-0/pygnss-tec/blob/main/benchmarks/benchmark.md)).
 - **Multiple File Formats**: Support for RINEX versions 2.x and 3.x, as well as Hatanaka compressed files (e.g., .rnx, .crx, .crx.gz).
-
-- **TEC Calculation**: Efficiently compute TEC from dual-frequency GNSS observations using rust and [polars](https://pola.rs/) lazy evaluation (see [benchmarks](#benchmarks) for details).
-
 - **Multi-GNSS Support**: Process observations from multiple GNSS constellations (see [Overview](#overview) for constellation support).
-
 - **Open-Source**: Fully open-source under the MIT License, encouraging community contributions and collaboration.
 
 ## Installation
@@ -47,7 +44,8 @@ Building from source requires Python 3.12 or later, Rust 1.88 or later (includin
 ```bash
 git clone https://github.com/Eureka-0/pygnss-tec.git
 cd pygnss-tec
-uv run --with maturin maturin build --release
+uv sync
+uv run maturin build --release
 ```
 
 The built wheel is available in `target/wheels/`.
@@ -123,24 +121,19 @@ tec_lf = gt.calc_tec_from_rinex(
 )
 ```
 
-Calculation from existing DataFrames, LazyFrames and saved Parquet observations is also supported. See [usage and configuration](docs/usage.md) for those examples.
-
-## Benchmarks
-
-See [benchmark results](benchmarks/benchmark.md) for RINEX reading and TEC calculation with the streaming and in-memory engines.
+Calculation from existing DataFrames, LazyFrames and saved Parquet observations is also supported.
+See the [TEC calculation guide](https://eureka-0.github.io/pygnss-tec/guide/tec-calculation/) for those examples.
 
 ## Documentation
 
-- [Usage and configuration](docs/usage.md)
-- [Roadmap](ROADMAP.md)
-- [Changelog](CHANGELOG.md)
+You can find the full documentation for PyGNSS-TEC at [this site](https://eureka-0.github.io/pygnss-tec/).
 
 ## Contributing
 
 Bug reports and reproducible examples are welcome through [GitHub issues](https://github.com/Eureka-0/pygnss-tec/issues).
-Pull requests are welcome for bug fixes, new features, and documentation improvements.
-See the [justfile](justfile) for build and test commands.
+Bug fixes, new features, and documentation improvements are welcome through [pull requests](https://github.com/Eureka-0/pygnss-tec/pulls).
+See [contributing documentation](https://eureka-0.github.io/pygnss-tec/contributing/) for development, testing and documentation builds.
 
 ## License
 
-This project is licensed under the [MIT LICENSE](LICENSE).
+This project is licensed under the [MIT LICENSE](LICENSE), allowing for free use, modification, and distribution of the software.

@@ -1,0 +1,6 @@
+{% if obj.lineno %}
+  <p class="doc-source-link">
+    <a href="{{ config.extra.source_url }}/{{ obj.relative_filepath.as_posix() }}#L{{ obj.lineno }}{% if obj.endlineno %}-L{{ obj.endlineno }}{% endif %}"
+       title="View source for {{ obj.path }}">[source]</a>
+  </p>
+{% endif %}

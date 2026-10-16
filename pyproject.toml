@@ -22,6 +22,7 @@ dependencies = [
 
 [project.urls]
 repository = "https://github.com/Eureka-0/pygnss-tec.git"
+documentation = "https://eureka-0.github.io/pygnss-tec/"
 
 [dependency-groups]
 dev = [
@@ -29,10 +30,12 @@ dev = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
     "maturin>=1.15.0",
+    "mkdocstrings[python]>=1.0.7",
     "pytest>=8.4.2",
     "ruff>=0.14.6",
     "scipy-stubs>=1.16.0",
     "ty>=0.0.85",
+    "zensical>=0.0.70",
 ]
 
 [build-system]
@@ -40,6 +43,7 @@ requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
+profile = "release"
 bindings = "pyo3"
 compatibility = "pypi"
 module-name = "gnss_tec._core"

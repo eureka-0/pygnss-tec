@@ -16,11 +16,17 @@ check:
     cargo clippy --locked --fix --allow-dirty -- -D warnings
     cargo fmt
 
-test-python *args:
-    uv run --no-sync pytest "$@"
-
 test-rust *args:
     cargo test --locked "$@"
 
-bench *args:
+test-python *args:
+    uv run --no-sync pytest "$@"
+
+bench *args: build
     uv run --no-sync benchmarks/bench.py --multiday "$@"
+
+docs-build *args:
+    uv run --no-sync zensical build --clean --strict "$@"
+
+docs-serve *args:
+    uv run --no-sync zensical serve "$@"
