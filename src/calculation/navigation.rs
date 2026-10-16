@@ -13,7 +13,8 @@ use rinex::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{glonass::BroadcastState, rinex_io};
+use super::glonass::BroadcastState;
+use crate::io::rinex as rinex_io;
 
 enum Orbit {
     Kepler(Box<Ephemeris>),

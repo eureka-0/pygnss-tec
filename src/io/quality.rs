@@ -7,7 +7,7 @@ use std::{
 use pyo3::{PyResult, exceptions::PyValueError};
 use rinex::{hatanaka::Decompressor, prelude::*};
 
-use crate::rinex_io;
+use super::rinex as rinex_io;
 
 /// UTC nanoseconds, epoch flag, and original logical records including newlines.
 pub(crate) type EpochEvent = (i64, u8, String);

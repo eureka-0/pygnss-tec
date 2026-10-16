@@ -111,6 +111,15 @@ class RinexObsHeader:
     receiver_history: tuple[ReceiverHeader, ...] = ()
     """Per-file first UTC epoch, original ECEF position and receiver identity."""
 
+    phase_integer_cycles: bool = True
+    """Whether the header declares ordinary unscaled full-cycle phase.
+
+    Manually constructed frames assume full cycles. RINEX readers record
+    unsupported wavelength/scale declarations. Legacy Parquet without this
+    metadata records False. This metadata does not veto STEC time-continuity
+    correction, which makes no per-carrier integer claim.
+    """
+
     def to_dict(
         self,
     ) -> dict[
@@ -136,6 +145,7 @@ class RinexObsHeader:
             "epoch_events": self.epoch_events,
             "receiver_id": self.receiver_id,
             "receiver_history": self.receiver_history,
+            "phase_integer_cycles": self.phase_integer_cycles,
         }
 
     def to_metadata(self) -> dict[str, str]:
@@ -162,6 +172,7 @@ class RinexObsHeader:
             "epoch_events": json.dumps(self.epoch_events),
             "receiver_id": self.receiver_id or "",
             "receiver_history": json.dumps(self.receiver_history),
+            "phase_integer_cycles": str(self.phase_integer_cycles).lower(),
         }
 
     @staticmethod
@@ -225,6 +236,7 @@ class RinexObsHeader:
                 for event in json.loads(metadata.get("epoch_events", "[]"))
             ),
             receiver_id=metadata.get("receiver_id") or None,
+            phase_integer_cycles=metadata.get("phase_integer_cycles") == "true",
             receiver_history=tuple(
                 (
                     int(item[0]),
@@ -377,6 +389,7 @@ def read_rinex_obs(
             if len({header.receiver_id for header in headers}) == 1
             else None,
             receiver_history=history,
+            phase_integer_cycles=all(header.phase_integer_cycles for header in headers),
             epoch_events=tuple(
                 sorted(
                     {event for header in headers for event in header.epoch_events},
@@ -411,6 +424,7 @@ def read_rinex_obs(
         leap_seconds=header_dict["leap_seconds"],
         epoch_events=tuple(header_dict["epoch_events"]),
         receiver_id=header_dict["receiver_id"],
+        phase_integer_cycles=header_dict["phase_integer_cycles"],
         receiver_history=()
         if first_epoch is None
         else ((first_epoch, rx_ecef, header_dict["receiver_id"]),),

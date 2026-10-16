@@ -1,7 +1,7 @@
 //! Shared file decoding and ordered merging for observations and navigation.
 use std::{
     fs::File,
-    io::{BufReader, Read},
+    io::{BufRead, BufReader, Read},
     path::Path,
     str::FromStr,
 };
@@ -12,7 +12,7 @@ use pyo3::{
 };
 use rinex::prelude::{Header, ProductionAttributes, Record, Rinex, qc::Merge};
 
-use crate::quality::ObservationReader;
+use super::quality::ObservationReader;
 
 pub(crate) fn open(path: &str) -> PyResult<Box<dyn Read>> {
     let file = File::open(path).map_err(|error| PyIOError::new_err(error.to_string()))?;
@@ -21,6 +21,40 @@ pub(crate) fn open(path: &str) -> PyResult<Box<dyn Read>> {
     } else {
         Box::new(file)
     })
+}
+
+/// Upstream does not expose every legacy wavelength declaration. Inspect only
+/// the small original header, also for gzip/Hatanaka, before permitting repair.
+pub(crate) fn integer_cycles(paths: &[String]) -> PyResult<bool> {
+    for path in paths {
+        let mut reader = BufReader::new(open(path)?);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if reader
+                .read_line(&mut line)
+                .map_err(|e| PyIOError::new_err(e.to_string()))?
+                == 0
+            {
+                break;
+            }
+            let label = line.get(60..).unwrap_or("").trim();
+            if label == "END OF HEADER" {
+                break;
+            }
+            let content = line.get(..60).unwrap_or("");
+            let fields: Vec<_> = content.split_whitespace().collect();
+            if label == "WAVELENGTH FACT L1/2"
+                && (fields.first() != Some(&"1") || fields.get(1) != Some(&"1"))
+            {
+                return Ok(false);
+            }
+            if label == "SYS / SCALE FACTOR" && fields.get(1) != Some(&"1") {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 
 fn read(path: &str) -> PyResult<Rinex> {

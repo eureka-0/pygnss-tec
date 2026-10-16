@@ -14,6 +14,8 @@ See [justfile](justfile) for common project commands.
 
 - **Docstrings**: Use NumPy-style `Parameters`, `Returns`/`Yields`, `Raises` and `Attributes` sections where applicable.
 
+- **Markdown**: Write one sentence per line without hard-wrapping sentences to a fixed width.
+
 - **README**: Do not modify the README.md file directly unless you are asked to do so or the changes are update to the original content.
 
 ## Roadmap Workflow

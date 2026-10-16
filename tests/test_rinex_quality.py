@@ -11,6 +11,26 @@ from gnss_tec.calculation.observation_geometry import _prepare_observations
 from gnss_tec.io.rinex import RinexObsHeader
 
 
+@pytest.mark.parametrize("version", [2, 3])
+@pytest.mark.parametrize("factor", [1, 2])
+def test_phase_conventions_gate_integer_repair(tmp_path, version, factor):
+    path = tmp_path / "convention.rnx"
+    write_minimal_rinex(path, version, flagged=False)
+    declaration = (
+        f"{factor:6d}{factor:6d}{0:6d}{'':42}WAVELENGTH FACT L1/2\n"
+        if version == 2
+        else f"{f'G {factor:6d}{1:3d} L1C':<60}SYS / SCALE FACTOR\n"
+    )
+    path.write_text(
+        path.read_text().replace(
+            f"{'':60}END OF HEADER\n", declaration + f"{'':60}END OF HEADER\n"
+        )
+    )
+    header, _ = gt.read_rinex_obs(path)
+    assert header.phase_integer_cycles == (factor == 1)
+    assert RinexObsHeader.from_metadata(header.to_metadata()) == header
+
+
 @pytest.mark.parametrize("retain", [None, "all", ["azimuth", "qc_valid"]])
 def test_tec_output_omits_internal_and_legacy_helpers(retain):
     header, frame = physical_observations(np.full(8, 30.0))

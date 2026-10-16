@@ -13,7 +13,7 @@ use rinex::observation::EpochFlag;
 use rinex::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::quality;
+use super::quality;
 
 struct ObservationColumn {
     values: Vec<f64>,

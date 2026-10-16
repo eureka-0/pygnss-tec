@@ -56,15 +56,26 @@ def observations() -> tuple[RinexObsHeader, pl.DataFrame]:
     return header, df
 
 
-def _calculate(df: pl.DataFrame | pl.LazyFrame, header: RinexObsHeader) -> pl.DataFrame:
+def _calculate(
+    df: pl.DataFrame | pl.LazyFrame,
+    header: RinexObsHeader,
+    *,
+    cycle_slip_mode: Literal["basic", "detect", "repair"] = "repair",
+) -> pl.DataFrame:
     return gt.calc_tec_from_df(
-        df, header, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
+        df,
+        header,
+        config=gt.TECConfig(
+            rx_bias=None, retain_diagnostics="all", cycle_slip_mode=cycle_slip_mode
+        ),
     ).collect(engine="in-memory")
 
 
 def test_scientific_reference(observations):
     header, raw = observations
-    result = _calculate(raw, header)
+    # Freeze the legacy, independent-per-arc leveling formula here. Repair-mode
+    # continuity and corrected-phase leveling have separate physical oracles.
+    result = _calculate(raw, header, cycle_slip_mode="basic")
     assert result.select("time", "station", "prn").equals(
         result.select("time", "station", "prn").sort("time", "station", "prn")
     )

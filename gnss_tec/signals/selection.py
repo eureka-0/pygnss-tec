@@ -170,6 +170,24 @@ def coalesce_observations(
             .to_series()
         )
         output = output.with_columns(snr_valid)
+        if not seen_masks and pairs:
+            # Initially every mask equals base. Reassessment only removes
+            # candidates, so restoration cannot change a mask on this pass.
+            chosen_enabled = (
+                data.with_columns(output.select("C1_code", "C2_code"))
+                .select(
+                    pl.any_horizontal(
+                        pl.col(f"_usable_{constellation}_{first}_{second}")
+                        & pl.col("prn").str.starts_with(constellation)
+                        & (pl.col("C1_code") == first)
+                        & (pl.col("C2_code") == second)
+                        for constellation, first, second, *_ in pairs
+                    ).fill_null(False)
+                )
+                .to_series()
+            )
+            if not (chosen_enabled & ~snr_valid).any():
+                break
         # Group membership can cycle, particularly when the two SNR bands have
         # different missing rows. After repeated masks, only remove rejected
         # choices so termination and final grouped acceptance remain guaranteed.
@@ -190,26 +208,34 @@ def coalesce_observations(
                 ).alias(f"_usable_{constellation}_{first}_{second}")
                 for constellation, first, second, *_ in pairs
             )
-        updates = []
-        for constellation, first, second, *_ in pairs:
-            mask = f"_usable_{constellation}_{first}_{second}"
-            rejected = (
-                (output["C1_code"] == first)
-                & (output["C2_code"] == second)
-                & data["prn"].str.starts_with(constellation)
-                & ~snr_valid
-            ).fill_null(False)
-            usable = data[mask]
-            if reassessed is not None:
-                # Restore candidates accepted by their current group, but let
-                # untried null-SNR candidates form a group before rejecting them.
-                usable = usable | reassessed[mask]
-            usable = usable & ~rejected
-            if not usable.equals(data[mask]):
-                updates.append(usable.alias(mask))
-        if not updates:
+        joined = data.with_columns(
+            *output.select("C1_code", "C2_code").get_columns(),
+            snr_valid.alias("_selected_snr_valid"),
+        )
+        if reassessed is not None:
+            joined = joined.with_columns(
+                reassessed.rename({mask: mask + "_restore" for mask in masks})
+            )
+        updated = joined.select(
+            (
+                (
+                    pl.col(mask) | pl.col(mask + "_restore")
+                    if reassessed is not None
+                    else pl.col(mask)
+                )
+                & ~(
+                    (pl.col("C1_code") == first)
+                    & (pl.col("C2_code") == second)
+                    & pl.col("prn").str.starts_with(constellation)
+                    & ~pl.col("_selected_snr_valid")
+                ).fill_null(False)
+            ).alias(mask)
+            for constellation, first, second, *_ in pairs
+            for mask in [f"_usable_{constellation}_{first}_{second}"]
+        )
+        if updated.equals(data.select(masks)):
             break
-        data = data.with_columns(updates)
+        data = data.with_columns(updated)
     output = output.with_columns(pl.col("C1_code", "C2_code").cast(pl.Categorical))
     intervals = [
         name for name in output.columns if name.endswith(("_bias_start", "_bias_end"))

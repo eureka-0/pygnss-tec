@@ -14,7 +14,7 @@ from ..configuration import DIAGNOSTIC_COLUMNS, TECConfig
 from ..constants import c
 from ..io.bias_sinex import read_bias
 from ..io.rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
-from ..signals.arcs import add_basic_arcs
+from ..signals.arcs import add_slip_arcs, align_stec
 from ..signals.definitions import CODE_FREQUENCIES
 from ..signals.selection import coalesce_observations as _coalesce_observations
 from .mapping_functions import modified_single_layer_model, single_layer_model
@@ -367,8 +367,11 @@ def calc_tec_from_df(
         )
         .with_columns(pl.col("stec_p_raw").alias("stec_p"))
     )
-    lf = add_basic_arcs(
-        lf, sampling_interval if header.sampling_interval is not None else None
+    lf = add_slip_arcs(
+        lf,
+        sampling_interval if header.sampling_interval is not None else None,
+        config.cycle_slip_mode,
+        integer_cycles=header.phase_integer_cycles,
     )
     if not keep_all:
         # Rejected rows have already contributed to arc boundaries. They carry
@@ -435,12 +438,12 @@ def calc_tec_from_df(
         .with_columns(
             (
                 pl.col("qc_valid")
-                & (pl.col("stec_g_corrected") - pl.col("stec_p_raw")).is_finite()
+                & (pl.col("stec_g_corrected") - pl.col("stec_p_corrected")).is_finite()
             ).alias("qc_valid"),
             pl.concat_str(
                 pl.col("qc_reason"),
                 pl.when(
-                    ~(pl.col("stec_g_corrected") - pl.col("stec_p_raw"))
+                    ~(pl.col("stec_g_corrected") - pl.col("stec_p_corrected"))
                     .is_finite()
                     .fill_null(False)
                 )
@@ -453,7 +456,8 @@ def calc_tec_from_df(
         .with_columns(
             pl.when(pl.col("qc_valid") & (pl.col("weight") > 0))
             .then(
-                (pl.col("stec_g_corrected") - pl.col("stec_p_raw")) * pl.col("weight")
+                (pl.col("stec_g_corrected") - pl.col("stec_p_corrected"))
+                * pl.col("weight")
             )
             .otherwise(None)
             .alias("_weighted_offset"),
@@ -464,13 +468,13 @@ def calc_tec_from_df(
         )
         .with_columns(
             (pl.col("_weighted_offset").sum() / pl.col("_valid_weight").sum())
-            .over("station", "prn", "arc_id", "_level_key")
+            .over("station", "prn", "_continuity_id", "_level_key")
             .fill_nan(None)
             .alias("offset")
         )
         .with_columns(
             pl.when(pl.col("qc_valid") & pl.col("offset").is_finite())
-            .then(pl.col("stec_p_raw") + pl.col("offset"))
+            .then(pl.col("stec_p_corrected") + pl.col("offset"))
             .otherwise(None)
             .alias("_leveled")
         )
@@ -538,6 +542,13 @@ def calc_tec_from_df(
         for name in ("stec", "vtec", "stec_dcb_corrected")
         if name in lf.collect_schema()
     )
+    if config.cycle_slip_mode == "repair":
+        lf = align_stec(lf)
+    else:
+        lf = lf.with_columns(
+            pl.lit(None, dtype=pl.Float64).alias(name)
+            for name in ("slip_stec_correction", "slip_dcb_correction")
+        )
     private_cols = [
         name
         for name in lf.collect_schema().names()
@@ -651,7 +662,29 @@ def calc_tec_from_rinex(
     if config is None:
         config = TECConfig()
     header, lf = read_rinex_obs(
-        obs_fn, config.constellations, station=station, include_lli=True
+        obs_fn,
+        config.constellations,
+        _tec_observation_codes(config),
+        station=station,
+        include_lli=True,
     )
 
     return calc_tec_from_df(lf, header, bias_fn, config, nav_fn=nav_fn)
+
+
+def _tec_observation_codes(config: TECConfig) -> list[str]:
+    """Project every configured fallback with its phase, SNR and LLI.
+
+    Union both RINEX versions because the version is known after reading the
+    header. Keeping only defaults would silently remove custom fallbacks.
+    """
+    codes = {
+        code
+        for mapping in (config.c1_codes, config.c2_codes)
+        for version in mapping.values()
+        for constellation in config.constellations
+        for code in version.get(constellation, [])
+    }
+    return sorted(
+        {name for code in codes for name in (code, "L" + code[1:], "S" + code[1:])}
+    )

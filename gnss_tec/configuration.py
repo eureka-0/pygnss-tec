@@ -46,6 +46,16 @@ DIAGNOSTIC_COLUMNS = frozenset(
         "stec_g",
         "stec_p",
         "stec_p_raw",
+        "stec_p_corrected",
+        "slip_status",
+        "slip_n1",
+        "slip_n2",
+        "slip_sigma_gf",
+        "slip_sigma_mw",
+        "slip_correction",
+        "slip_stec_correction",
+        "slip_dcb_correction",
+        "slip_sigma_phase",
         "stec_g_corrected",
         "arc_id",
         "mw",
@@ -112,13 +122,22 @@ class TECConfig:
         rejected rows with null public TEC and rejection reasons.
         Selectable fields are epoch_flag, L1_lli, L2_lli, qc_valid,
         qc_reason, calibration_status, C1_freq, C2_freq, mf, stec_g,
-        stec_p, stec_p_raw, stec_g_corrected, arc_id, mw, C1_val, C2_val,
+        stec_p, stec_p_raw, stec_p_corrected, stec_g_corrected, arc_id,
+        slip_status, slip_n1, slip_n2, slip_sigma_gf, slip_sigma_mw,
+        slip_correction, slip_stec_correction, slip_dcb_correction, slip_sigma_phase,
+        mw, C1_val, C2_val,
         L1_val, L2_val, S1, S2, tx_bias and rx_bias. Bias diagnostics exist
         only when bias data are supplied. Geometry requests are allowed
         but redundant. `mw` is Melbourne-Wuebbena in wide-lane cycles;
-        basic QC checks finiteness without detecting unflagged slips.
+        Detection/repair follows cycle_slip_mode independently of retention.
         tx_bias_start/end, rx_bias_start/end, level_id, offset and weight
         are internal and unavailable in every output mode.
+    cycle_slip_mode : {'basic', 'detect', 'repair'}, default 'repair'
+        Batch GF/MW localization and STEC continuity correction. Every detected
+        edge is aligned to the local normal STEC rate, using up to 32 past/future
+        epochs. Code, MW ambiguity, integer conventions and uncertainty do not
+        veto correction. Short segments use the available neighboring rates.
+        'detect' never changes phase; 'basic' retains lock/event QC only.
     missing_bias : {'drop', 'warn', 'keep_uncorrected', 'error'}, default 'drop'
         Policy for required bias matches when a product is supplied.
         'drop' rejects unmatched rows; 'warn' also warns; 'error' raises.
@@ -155,6 +174,14 @@ class TECConfig:
     mapping_function: Literal["slm", "mslm"] = "slm"
     retain_diagnostics: Literal["all"] | list[str] | tuple[str, ...] | None = None
     missing_bias: Literal["drop", "warn", "keep_uncorrected", "error"] = "drop"
+    cycle_slip_mode: Literal["basic", "detect", "repair"] = "repair"
+    """Batch GF/MW policy: basic QC, detection, or scientific phase repair.
+
+    Repair aligns all localized edges by time continuity, with up to 32 future
+    epochs and no fixed minimum support. Raw phase is immutable. Continuous
+    offsets and their rate-scatter diagnostics are in TECU; per-carrier integer
+    fields remain null. Code/MW scales are diagnostic and never veto repair.
+    """
 
     @property
     def ipp_height_m(self) -> float:
@@ -348,6 +375,8 @@ class TECConfig:
         return validated_codes
 
     def __post_init__(self):
+        if self.cycle_slip_mode not in {"basic", "detect", "repair"}:
+            raise ValueError("cycle_slip_mode must be 'basic', 'detect', or 'repair'.")
         # Validate constellations
         allowed = set(SUPPORTED_CONSTELLATIONS.keys())
         constellations = self.constellations.upper()
@@ -430,23 +459,23 @@ class TECConfig:
 
 @dataclass(frozen=True)
 class SamplingConfig:
-    """Legacy sampling settings; basic QC uses cadence, not GF/MW tuning."""
+    """Legacy sampling settings; the production batch kernel uses fixed windows."""
 
     arc_interval: pl.Expr
     """Minimum time interval for arc segmentation (pl.duration)."""
 
     slip_tec_threshold: float
-    """Legacy GF/MW threshold, unused by default basic QC."""
+    """Legacy GF/MW threshold, unused by the production batch detector."""
 
     slip_correction_window: int
-    """Legacy GF/MW window, unused by default basic QC."""
+    """Legacy GF/MW window, unused by the production batch detector."""
 
 
 def get_sampling_config(sampling_interval: float) -> SamplingConfig:
     """Return legacy arc settings for a finite positive cadence in seconds.
 
-    Basic QC uses the cadence directly; these GF/MW thresholds and windows
-    do not enable slip detection.
+    Basic QC uses the cadence directly. These historical GF/MW parameters do
+    not configure the current batch detector or enable a different slip policy.
     """
     if not math.isfinite(sampling_interval) or sampling_interval <= 0:
         raise ValueError("sampling_interval must be finite and positive.")

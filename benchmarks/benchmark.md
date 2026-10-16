@@ -2,66 +2,67 @@
 
 | Environment | Value |
 | --- | --- |
-| Measured (UTC) | 2026-10-14T03:42:07+00:00 |
+| Measured (UTC) | 2026-10-15T09:25:39+00:00 |
 | Platform | macOS-27.0.1-arm64-arm-64bit-Mach-O; 12 logical cores |
 | Python / packages | Python 3.14.8; numpy 2.5.4; polars 2.0.0; pyarrow 26.0.0; pygnss-tec 0.4.2; scipy 1.18.1 |
-| Polars threads / warm-up / repeats | 12 / 1 / 7 |
-| Native SHA-256 | f4935ba9f10aaa300d8b6f43b4cb8d28f014ba15c7f94c7b73c42ac922ffe447 |
+| Polars threads / warm-up / repeats | 12 / 1 / 3 |
+| Native SHA-256 | 4df5a4804f6cde7cb93d51bb04f237bd9ebf5a2581fc3e84d386174b987e2a9e |
+| TEC cycle-slip policy | repair; batch GF/MW, configured observation projection, LLI enabled |
 
 ## streaming
 
 | Task | Rows | Median (s) | Min–max (s) |
 | --- | ---: | ---: | ---: |
-| read-v2-DGAR (3.65 MiB) | 81810 | 0.1736 | 0.1696–0.1795 |
-| read-and-TEC-v2-DGAR (3.65 MiB) | 10933 | 0.2302 | 0.2254–0.2376 |
-| TEC-only-v2-DGAR (3.65 MiB) | 10933 | 0.0289 | 0.0279–0.0308 |
-| read-v3-CIBG (14.02 MiB) | 180027 | 0.6370 | 0.6289–0.6537 |
-| read-and-TEC-v3-CIBG (14.02 MiB) | 50315 | 0.8772 | 0.8589–0.8974 |
-| TEC-only-v3-CIBG (14.02 MiB) | 50315 | 0.0888 | 0.0878–0.0946 |
-| read-crx-CIBG (6.05 MiB) | 180027 | 1.1162 | 1.0858–1.1471 |
-| read-and-TEC-crx-CIBG (6.05 MiB) | 50315 | 1.3564 | 1.3541–1.4043 |
-| TEC-only-crx-CIBG (6.05 MiB) | 50315 | 0.0935 | 0.0872–0.1016 |
-| read-crx-BELE (2.34 MiB) | 107287 | 0.4310 | 0.4283–0.4424 |
-| read-and-TEC-crx-BELE (2.34 MiB) | 19486 | 0.6223 | 0.6161–0.6364 |
-| TEC-only-crx-BELE (2.34 MiB) | 19486 | 0.0570 | 0.0540–0.0645 |
-| read-two-days-DGAR (7.38 MiB) | 164055 | 0.3483 | 0.3443–0.3583 |
-| read-and-TEC-two-days-DGAR (7.38 MiB) | 21870 | 0.4242 | 0.4210–0.4375 |
-| TEC-only-two-days-DGAR (7.38 MiB) | 21870 | 0.0406 | 0.0399–0.0428 |
-| read-two-days-POAL (14.04 MiB) | 288628 | 0.8012 | 0.7767–0.8861 |
-| read-and-TEC-two-days-POAL (14.04 MiB) | 45702 | 0.9175 | 0.9044–0.9388 |
-| TEC-only-two-days-POAL (14.04 MiB) | 45702 | 0.0676 | 0.0625–0.0761 |
-| read-two-days-CIBG (11.99 MiB) | 352834 | 2.2084 | 2.1596–2.3561 |
-| read-and-TEC-two-days-CIBG (11.99 MiB) | 98242 | 2.7599 | 2.6487–3.3254 |
-| TEC-only-two-days-CIBG (11.99 MiB) | 98242 | 0.1759 | 0.1626–0.2888 |
-| read-two-days-BELE (4.67 MiB) | 213753 | 0.8467 | 0.8416–0.8525 |
-| read-and-TEC-two-days-BELE (4.67 MiB) | 33392 | 1.2582 | 1.2500–1.4500 |
-| TEC-only-two-days-BELE (4.67 MiB) | 33392 | 0.1076 | 0.1021–0.1232 |
+| read-v2-DGAR (3.65 MiB) | 81810 | 0.1937 | 0.1910–0.1958 |
+| read-and-TEC-v2-DGAR (3.65 MiB) | 10933 | 0.2486 | 0.2466–0.2500 |
+| TEC-only-v2-DGAR (3.65 MiB) | 10933 | 0.0543 | 0.0483–0.0581 |
+| read-v3-CIBG (14.02 MiB) | 180027 | 0.6728 | 0.6604–0.6754 |
+| read-and-TEC-v3-CIBG (14.02 MiB) | 50315 | 0.9966 | 0.9888–1.0064 |
+| TEC-only-v3-CIBG (14.02 MiB) | 50315 | 0.2904 | 0.2863–0.2949 |
+| read-crx-CIBG (6.05 MiB) | 180027 | 2.4644 | 2.2607–2.4654 |
+| read-and-TEC-crx-CIBG (6.05 MiB) | 50315 | 2.4603 | 2.4521–2.6476 |
+| TEC-only-crx-CIBG (6.05 MiB) | 50315 | 0.3925 | 0.3134–0.7732 |
+| read-crx-BELE (2.34 MiB) | 107287 | 0.9768 | 0.9454–0.9876 |
+| read-and-TEC-crx-BELE (2.34 MiB) | 19486 | 1.1906 | 1.1821–1.1976 |
+| TEC-only-crx-BELE (2.34 MiB) | 19486 | 0.1262 | 0.1258–0.1385 |
+| read-two-days-DGAR (7.38 MiB) | 164055 | 0.3888 | 0.3847–0.3893 |
+| read-and-TEC-two-days-DGAR (7.38 MiB) | 21870 | 0.4634 | 0.4584–0.4646 |
+| TEC-only-two-days-DGAR (7.38 MiB) | 21870 | 0.0720 | 0.0718–0.0725 |
+| read-two-days-POAL (14.04 MiB) | 288628 | 0.8515 | 0.8490–0.8524 |
+| read-and-TEC-two-days-POAL (14.04 MiB) | 45743 | 1.0203 | 1.0152–1.0245 |
+| TEC-only-two-days-POAL (14.04 MiB) | 45743 | 0.1660 | 0.1615–0.1667 |
+| read-two-days-CIBG (11.99 MiB) | 352834 | 4.4197 | 4.4025–4.4692 |
+| read-and-TEC-two-days-CIBG (11.99 MiB) | 98250 | 5.2569 | 5.1201–5.3808 |
+| TEC-only-two-days-CIBG (11.99 MiB) | 98250 | 0.5803 | 0.5556–0.5835 |
+| read-two-days-BELE (4.67 MiB) | 213753 | 1.8767 | 1.8585–1.9622 |
+| read-and-TEC-two-days-BELE (4.67 MiB) | 33392 | 2.3313 | 2.3225–2.3945 |
+| TEC-only-two-days-BELE (4.67 MiB) | 33392 | 0.2607 | 0.2599–0.2690 |
 
 ## in-memory
 
 | Task | Rows | Median (s) | Min–max (s) |
 | --- | ---: | ---: | ---: |
-| read-v2-DGAR (3.65 MiB) | 81810 | 0.1733 | 0.1719–0.2245 |
-| read-and-TEC-v2-DGAR (3.65 MiB) | 10933 | 0.2187 | 0.2148–0.2415 |
-| TEC-only-v2-DGAR (3.65 MiB) | 10933 | 0.0225 | 0.0223–0.0233 |
-| read-v3-CIBG (14.02 MiB) | 180027 | 0.6292 | 0.6255–0.6695 |
-| read-and-TEC-v3-CIBG (14.02 MiB) | 50315 | 0.8744 | 0.8693–0.9079 |
-| TEC-only-v3-CIBG (14.02 MiB) | 50315 | 0.0762 | 0.0747–0.0779 |
-| read-crx-CIBG (6.05 MiB) | 180027 | 1.1103 | 1.0784–1.1196 |
-| read-and-TEC-crx-CIBG (6.05 MiB) | 50315 | 1.3639 | 1.3189–1.4118 |
-| TEC-only-crx-CIBG (6.05 MiB) | 50315 | 0.0782 | 0.0761–0.1118 |
-| read-crx-BELE (2.34 MiB) | 107287 | 0.4368 | 0.4280–0.4622 |
-| read-and-TEC-crx-BELE (2.34 MiB) | 19486 | 0.6219 | 0.6155–0.7144 |
-| TEC-only-crx-BELE (2.34 MiB) | 19486 | 0.0519 | 0.0513–0.0540 |
-| read-two-days-DGAR (7.38 MiB) | 164055 | 0.3401 | 0.3353–0.3484 |
-| read-and-TEC-two-days-DGAR (7.38 MiB) | 21870 | 0.4228 | 0.4164–0.4279 |
-| TEC-only-two-days-DGAR (7.38 MiB) | 21870 | 0.0374 | 0.0370–0.0388 |
-| read-two-days-POAL (14.04 MiB) | 288628 | 0.8012 | 0.7959–0.8547 |
-| read-and-TEC-two-days-POAL (14.04 MiB) | 45702 | 0.9202 | 0.9060–1.0560 |
-| TEC-only-two-days-POAL (14.04 MiB) | 45702 | 0.0609 | 0.0598–0.0637 |
-| read-two-days-CIBG (11.99 MiB) | 352834 | 2.1764 | 2.1598–2.2248 |
-| read-and-TEC-two-days-CIBG (11.99 MiB) | 98242 | 2.7361 | 2.6819–3.0480 |
-| TEC-only-two-days-CIBG (11.99 MiB) | 98242 | 0.1345 | 0.1308–0.1566 |
-| read-two-days-BELE (4.67 MiB) | 213753 | 0.8468 | 0.8273–0.8843 |
-| read-and-TEC-two-days-BELE (4.67 MiB) | 33392 | 1.2959 | 1.2157–1.4160 |
-| TEC-only-two-days-BELE (4.67 MiB) | 33392 | 0.0843 | 0.0824–0.0918 |
+| read-v2-DGAR (3.65 MiB) | 81810 | 0.1910 | 0.1890–0.1910 |
+| read-and-TEC-v2-DGAR (3.65 MiB) | 10933 | 0.2394 | 0.2383–0.2440 |
+| TEC-only-v2-DGAR (3.65 MiB) | 10933 | 0.0408 | 0.0405–0.0415 |
+| read-v3-CIBG (14.02 MiB) | 180027 | 0.6791 | 0.6587–0.6904 |
+| read-and-TEC-v3-CIBG (14.02 MiB) | 50315 | 0.9897 | 0.9851–0.9989 |
+| TEC-only-v3-CIBG (14.02 MiB) | 50315 | 0.2434 | 0.2345–0.2481 |
+| read-crx-CIBG (6.05 MiB) | 180027 | 2.2827 | 2.2213–2.3108 |
+| read-and-TEC-crx-CIBG (6.05 MiB) | 50315 | 2.4664 | 2.4635–2.4718 |
+| TEC-only-crx-CIBG (6.05 MiB) | 50315 | 0.2397 | 0.2328–0.2526 |
+| read-crx-BELE (2.34 MiB) | 107287 | 0.9208 | 0.8892–1.0116 |
+| read-and-TEC-crx-BELE (2.34 MiB) | 19486 | 1.1507 | 1.1381–1.2663 |
+| TEC-only-crx-BELE (2.34 MiB) | 19486 | 0.1247 | 0.1211–0.1260 |
+| read-two-days-DGAR (7.38 MiB) | 164055 | 0.3864 | 0.3743–0.3975 |
+| read-and-TEC-two-days-DGAR (7.38 MiB) | 21870 | 0.4557 | 0.4546–0.4655 |
+| TEC-only-two-days-DGAR (7.38 MiB) | 21870 | 0.0691 | 0.0684–0.0700 |
+| read-two-days-POAL (14.04 MiB) | 288628 | 0.8382 | 0.8375–0.8470 |
+| read-and-TEC-two-days-POAL (14.04 MiB) | 45743 | 1.0531 | 1.0155–1.1855 |
+| TEC-only-two-days-POAL (14.04 MiB) | 45743 | 0.1579 | 0.1549–0.1583 |
+| read-two-days-CIBG (11.99 MiB) | 352834 | 4.2505 | 4.2209–4.2714 |
+| read-and-TEC-two-days-CIBG (11.99 MiB) | 98250 | 4.8988 | 4.8584–4.9024 |
+| TEC-only-two-days-CIBG (11.99 MiB) | 98250 | 0.4335 | 0.4335–0.4558 |
+| read-two-days-BELE (4.67 MiB) | 213753 | 1.8132 | 1.8041–1.9202 |
+| read-and-TEC-two-days-BELE (4.67 MiB) | 33392 | 2.3500 | 2.3453–2.4044 |
+| TEC-only-two-days-BELE (4.67 MiB) | 33392 | 0.1997 | 0.1979–0.2004 |

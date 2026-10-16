@@ -1,0 +1,2076 @@
+{
+  "groups": [
+    {
+      "group": "18-0-DGAR",
+      "rejections": {
+        "code_ambiguous": 3,
+        "phase_precision": 1
+      }
+    },
+    {
+      "group": "18-0-POAL",
+      "rejections": {
+        "code_ambiguous": 5
+      }
+    },
+    {
+      "group": "18-0-CIBG",
+      "rejections": {
+        "code_ambiguous": 3,
+        "phase_precision": 2,
+        "physical_inconsistent": 3
+      }
+    },
+    {
+      "group": "18-0-BELE",
+      "rejections": {
+        "code_ambiguous": 6,
+        "phase_precision": 1
+      }
+    },
+    {
+      "group": "18-30-DGAR",
+      "rejections": {
+        "code_ambiguous": 3,
+        "phase_precision": 1
+      }
+    },
+    {
+      "group": "18-30-POAL",
+      "rejections": {
+        "code_ambiguous": 3,
+        "unstable_trend": 3
+      }
+    },
+    {
+      "group": "18-30-CIBG",
+      "rejections": {
+        "code_ambiguous": 3,
+        "phase_precision": 1,
+        "physical_inconsistent": 5
+      }
+    },
+    {
+      "group": "18-30-BELE",
+      "rejections": {
+        "code_ambiguous": 6,
+        "phase_precision": 1
+      }
+    },
+    {
+      "group": "6-0-DGAR",
+      "rejections": {
+        "code_ambiguous": 4
+      }
+    },
+    {
+      "group": "6-0-POAL",
+      "rejections": {
+        "code_ambiguous": 5,
+        "phase_precision": 1
+      }
+    },
+    {
+      "group": "6-0-CIBG",
+      "rejections": {
+        "code_ambiguous": 8
+      }
+    },
+    {
+      "group": "6-0-BELE",
+      "rejections": {
+        "code_ambiguous": 2,
+        "physical_inconsistent": 3,
+        "unstable_trend": 3
+      }
+    }
+  ],
+  "events": [
+    {
+      "group": "18-0-DGAR",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.0043307657916008884,
+      "sigma_code_gf_m": 0.0775801936616678,
+      "sigma_mw_cycles": 0.06154833109889414
+    },
+    {
+      "group": "18-0-DGAR",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.0043307657916091475,
+      "sigma_code_gf_m": 0.0775801936616671,
+      "sigma_mw_cycles": 0.06154833109889414
+    },
+    {
+      "group": "18-0-DGAR",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.0043307657916095005,
+      "sigma_code_gf_m": 0.07758019366166757,
+      "sigma_mw_cycles": 0.06154833109889414
+    },
+    {
+      "group": "18-0-DGAR",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.3712546070067116,
+      "sigma_code_gf_m": 0.09902403038731337,
+      "sigma_mw_cycles": 0.07726520806930202
+    },
+    {
+      "group": "18-0-DGAR",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.37125460700672075,
+      "sigma_code_gf_m": 0.09902403038731337,
+      "sigma_mw_cycles": 0.07726520806930202
+    },
+    {
+      "group": "18-0-DGAR",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": false,
+      "status": "none",
+      "sigma_phase_tecu": null,
+      "sigma_code_gf_m": null,
+      "sigma_mw_cycles": null
+    },
+    {
+      "group": "18-0-POAL",
+      "day": "2024-01-11",
+      "prn": "G32",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.017257224263941,
+      "sigma_code_gf_m": 0.22996858452826607,
+      "sigma_mw_cycles": 0.1535840346851338
+    },
+    {
+      "group": "18-0-POAL",
+      "day": "2024-01-11",
+      "prn": "G32",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.01725722426389037,
+      "sigma_code_gf_m": 0.22996858452826716,
+      "sigma_mw_cycles": 0.1535840346851338
+    },
+    {
+      "group": "18-0-POAL",
+      "day": "2024-01-11",
+      "prn": "G32",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.017257224263889863,
+      "sigma_code_gf_m": 0.2299685845282646,
+      "sigma_mw_cycles": 0.1535840346851338
+    },
+    {
+      "group": "18-0-POAL",
+      "day": "2024-01-10",
+      "prn": "G32",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 76,
+      "event": 38,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.013997226490198687,
+      "sigma_code_gf_m": 0.20933532310515046,
+      "sigma_mw_cycles": 0.17896941137682873,
+      "first_time_ns": 1704909642000000000,
+      "last_time_ns": 1704910767000000000
+    },
+    {
+      "group": "18-0-POAL",
+      "day": "2024-01-10",
+      "prn": "G32",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 76,
+      "event": 38,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.013997226490185836,
+      "sigma_code_gf_m": 0.20933532310515057,
+      "sigma_mw_cycles": 0.17896941137682873,
+      "first_time_ns": 1704909642000000000,
+      "last_time_ns": 1704910767000000000
+    },
+    {
+      "group": "18-0-POAL",
+      "day": "2024-01-10",
+      "prn": "G32",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 76,
+      "event": 38,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.013997226490196062,
+      "sigma_code_gf_m": 0.20933532310515007,
+      "sigma_mw_cycles": 0.17896941137682873,
+      "first_time_ns": 1704909642000000000,
+      "last_time_ns": 1704910767000000000
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.007015506374462697,
+      "sigma_code_gf_m": 0.06756816215909263,
+      "sigma_mw_cycles": 0.031753708595121624
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.007015506374454806,
+      "sigma_code_gf_m": 0.06756816215909263,
+      "sigma_mw_cycles": 0.031753708595121624
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.007015506374457652,
+      "sigma_code_gf_m": 0.06756816215909263,
+      "sigma_mw_cycles": 0.031753708595121624
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.01898538673415537,
+      "sigma_code_gf_m": 0.1747965024036626,
+      "sigma_mw_cycles": 0.055665546159013264
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.018985386734161017,
+      "sigma_code_gf_m": 0.17479650240366207,
+      "sigma_mw_cycles": 0.055665546159013264
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.018985386734157884,
+      "sigma_code_gf_m": 0.17479650240366187,
+      "sigma_mw_cycles": 0.055665546159013264
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.33429362760067965,
+      "sigma_code_gf_m": 0.2115394084198386,
+      "sigma_mw_cycles": 0.12586128061980162
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.3342936276006679,
+      "sigma_code_gf_m": 0.21153940841983862,
+      "sigma_mw_cycles": 0.12586128061980162
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": false,
+      "status": "none",
+      "sigma_phase_tecu": null,
+      "sigma_code_gf_m": null,
+      "sigma_mw_cycles": null
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.015754924692246944,
+      "sigma_code_gf_m": 0.15653194790024305,
+      "sigma_mw_cycles": 0.07313157377187056
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.01575492469224203,
+      "sigma_code_gf_m": 0.1565319479002432,
+      "sigma_mw_cycles": 0.07313157377187056
+    },
+    {
+      "group": "18-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.015754924692240123,
+      "sigma_code_gf_m": 0.15653194790024316,
+      "sigma_mw_cycles": 0.07313157377187056
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-10",
+      "prn": "C30",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.028275527469736654,
+      "sigma_code_gf_m": 0.15772292720112632,
+      "sigma_mw_cycles": 0.08766196626035357
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-10",
+      "prn": "C30",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.028275527469739676,
+      "sigma_code_gf_m": 0.15772292720112646,
+      "sigma_mw_cycles": 0.08766196626035357
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-10",
+      "prn": "C30",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.02827552746973998,
+      "sigma_code_gf_m": 0.1577229272011265,
+      "sigma_mw_cycles": 0.08766196626035357
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-10",
+      "prn": "G31",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.011035061014195009,
+      "sigma_code_gf_m": 0.312480620096693,
+      "sigma_mw_cycles": 0.20696349963841318
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-10",
+      "prn": "G31",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.011035061014193943,
+      "sigma_code_gf_m": 0.31248062009669275,
+      "sigma_mw_cycles": 0.20696349963841318
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-10",
+      "prn": "G31",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.01103506101419488,
+      "sigma_code_gf_m": 0.3124806200966933,
+      "sigma_mw_cycles": 0.20696349963841318
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-11",
+      "prn": "C27",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.008478305100538626,
+      "sigma_code_gf_m": 0.16861514060140215,
+      "sigma_mw_cycles": 0.08609707605905786
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-11",
+      "prn": "C27",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.008478305100533674,
+      "sigma_code_gf_m": 0.16861514060140195,
+      "sigma_mw_cycles": 0.08609707605905786
+    },
+    {
+      "group": "18-0-BELE",
+      "day": "2024-01-11",
+      "prn": "C27",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.00847830510053965,
+      "sigma_code_gf_m": 0.16861514060140215,
+      "sigma_mw_cycles": 0.08609707605905786
+    },
+    {
+      "group": "18-30-DGAR",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.005019566342916423,
+      "sigma_code_gf_m": 0.18926435507353873,
+      "sigma_mw_cycles": 0.07335400368955505
+    },
+    {
+      "group": "18-30-DGAR",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.0050195663429197235,
+      "sigma_code_gf_m": 0.18926435507353856,
+      "sigma_mw_cycles": 0.07335400368955505
+    },
+    {
+      "group": "18-30-DGAR",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.0050195663429244055,
+      "sigma_code_gf_m": 0.18926435507353798,
+      "sigma_mw_cycles": 0.07335400368955505
+    },
+    {
+      "group": "18-30-DGAR",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.21828960020193727,
+      "sigma_code_gf_m": 0.10667526999576936,
+      "sigma_mw_cycles": 0.052517955243979855
+    },
+    {
+      "group": "18-30-DGAR",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.2182896002019512,
+      "sigma_code_gf_m": 0.10667526999576915,
+      "sigma_mw_cycles": 0.052517955243979855
+    },
+    {
+      "group": "18-30-DGAR",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": false,
+      "status": "none",
+      "sigma_phase_tecu": null,
+      "sigma_code_gf_m": null,
+      "sigma_mw_cycles": null
+    },
+    {
+      "group": "18-30-POAL",
+      "day": "2024-01-11",
+      "prn": "G28",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "unstable_trend",
+      "sigma_phase_tecu": 0.056137025208513165,
+      "sigma_code_gf_m": 0.41783046027990506,
+      "sigma_mw_cycles": 0.5108757236938104
+    },
+    {
+      "group": "18-30-POAL",
+      "day": "2024-01-11",
+      "prn": "G28",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "unstable_trend",
+      "sigma_phase_tecu": 0.05613702520852312,
+      "sigma_code_gf_m": 0.417830460279905,
+      "sigma_mw_cycles": 0.5108757236938104
+    },
+    {
+      "group": "18-30-POAL",
+      "day": "2024-01-11",
+      "prn": "G28",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "unstable_trend",
+      "sigma_phase_tecu": 0.05613702520852239,
+      "sigma_code_gf_m": 0.417830460279905,
+      "sigma_mw_cycles": 0.5108757236938104
+    },
+    {
+      "group": "18-30-POAL",
+      "day": "2024-01-10",
+      "prn": "G28",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 51,
+      "event": 25,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.020203540242183137,
+      "sigma_code_gf_m": 0.36576813454231444,
+      "sigma_mw_cycles": 0.49645400526439887
+    },
+    {
+      "group": "18-30-POAL",
+      "day": "2024-01-10",
+      "prn": "G28",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 51,
+      "event": 25,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.020203540242183533,
+      "sigma_code_gf_m": 0.36576813454231233,
+      "sigma_mw_cycles": 0.49645400526439887
+    },
+    {
+      "group": "18-30-POAL",
+      "day": "2024-01-10",
+      "prn": "G28",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 51,
+      "event": 25,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.02020354024217884,
+      "sigma_code_gf_m": 0.36576813454231377,
+      "sigma_mw_cycles": 0.49645400526439887
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.0168724662841156,
+      "sigma_code_gf_m": 0.08178832947161083,
+      "sigma_mw_cycles": 0.028630543505604806
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.016872466284113912,
+      "sigma_code_gf_m": 0.08178832947161083,
+      "sigma_mw_cycles": 0.028630543505604806
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.016872466284115397,
+      "sigma_code_gf_m": 0.08178832947161083,
+      "sigma_mw_cycles": 0.028630543505604806
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.00860562382363844,
+      "sigma_code_gf_m": 0.22994696827938182,
+      "sigma_mw_cycles": 0.09241716418364268
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.008605623823645214,
+      "sigma_code_gf_m": 0.22994696827938244,
+      "sigma_mw_cycles": 0.09241716418364268
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-10",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.008605623823637422,
+      "sigma_code_gf_m": 0.2299469682793821,
+      "sigma_mw_cycles": 0.09241716418364268
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.07678877573814391,
+      "sigma_code_gf_m": 0.14375211127565488,
+      "sigma_mw_cycles": 0.10838545673106734
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.07678877573814359,
+      "sigma_code_gf_m": 0.143752111275655,
+      "sigma_mw_cycles": 0.10838545673106734
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": false,
+      "status": "none",
+      "sigma_phase_tecu": null,
+      "sigma_code_gf_m": null,
+      "sigma_mw_cycles": null
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.023535372883170442,
+      "sigma_code_gf_m": 0.12260364949529644,
+      "sigma_mw_cycles": 0.08632782139579687
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.02353537288315623,
+      "sigma_code_gf_m": 0.1226036494952952,
+      "sigma_mw_cycles": 0.08632782139579687
+    },
+    {
+      "group": "18-30-CIBG",
+      "day": "2024-01-11",
+      "prn": "G12",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.02353537288315849,
+      "sigma_code_gf_m": 0.12260364949529635,
+      "sigma_mw_cycles": 0.08632782139579687
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-10",
+      "prn": "C30",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.02061930749321087,
+      "sigma_code_gf_m": 0.14838733088102937,
+      "sigma_mw_cycles": 0.09603562758886457
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-10",
+      "prn": "C30",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.020619307493208866,
+      "sigma_code_gf_m": 0.14838733088102937,
+      "sigma_mw_cycles": 0.09603562758886457
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-10",
+      "prn": "C30",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.020619307493208058,
+      "sigma_code_gf_m": 0.14838733088102954,
+      "sigma_mw_cycles": 0.09603562758886457
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-10",
+      "prn": "G31",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.010869009591498651,
+      "sigma_code_gf_m": 0.1707435453371486,
+      "sigma_mw_cycles": 0.11742749948477912
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-10",
+      "prn": "G31",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.01086900959149541,
+      "sigma_code_gf_m": 0.1707435453371482,
+      "sigma_mw_cycles": 0.11742749948477912
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-10",
+      "prn": "G31",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.010869009591495709,
+      "sigma_code_gf_m": 0.1707435453371484,
+      "sigma_mw_cycles": 0.11742749948477912
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-11",
+      "prn": "C23",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.013501660992039715,
+      "sigma_code_gf_m": 0.2493774634643289,
+      "sigma_mw_cycles": 0.0895659140420312
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-11",
+      "prn": "C23",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.013501660992019887,
+      "sigma_code_gf_m": 0.24937746346432882,
+      "sigma_mw_cycles": 0.0895659140420312
+    },
+    {
+      "group": "18-30-BELE",
+      "day": "2024-01-11",
+      "prn": "C23",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.013501660992018705,
+      "sigma_code_gf_m": 0.24937746346433023,
+      "sigma_mw_cycles": 0.0895659140420312
+    },
+    {
+      "group": "6-0-DGAR",
+      "day": "2024-01-10",
+      "prn": "G04",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.00400274420969885,
+      "sigma_code_gf_m": 0.11216028919859479,
+      "sigma_mw_cycles": 0.04994426881962607
+    },
+    {
+      "group": "6-0-DGAR",
+      "day": "2024-01-10",
+      "prn": "G04",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.004002744209700006,
+      "sigma_code_gf_m": 0.11216028919859428,
+      "sigma_mw_cycles": 0.04994426881962607
+    },
+    {
+      "group": "6-0-DGAR",
+      "day": "2024-01-10",
+      "prn": "G04",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.004002744209695486,
+      "sigma_code_gf_m": 0.1121602891985943,
+      "sigma_mw_cycles": 0.04994426881962607
+    },
+    {
+      "group": "6-0-DGAR",
+      "day": "2024-01-11",
+      "prn": "G14",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.01748736180692446,
+      "sigma_code_gf_m": 0.16092687219148513,
+      "sigma_mw_cycles": 0.07932037595127345
+    },
+    {
+      "group": "6-0-DGAR",
+      "day": "2024-01-11",
+      "prn": "G14",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.017487361806920832,
+      "sigma_code_gf_m": 0.16092687219148472,
+      "sigma_mw_cycles": 0.07932037595127345
+    },
+    {
+      "group": "6-0-DGAR",
+      "day": "2024-01-11",
+      "prn": "G14",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.017487361806924156,
+      "sigma_code_gf_m": 0.16092687219148472,
+      "sigma_mw_cycles": 0.07932037595127345
+    },
+    {
+      "group": "6-0-POAL",
+      "day": "2024-01-10",
+      "prn": "G24",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "phase_precision",
+      "sigma_phase_tecu": 0.025781954322446052,
+      "sigma_code_gf_m": 0.12873076195454664,
+      "sigma_mw_cycles": 0.07865946657029467
+    },
+    {
+      "group": "6-0-POAL",
+      "day": "2024-01-10",
+      "prn": "G24",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.025781954322449462,
+      "sigma_code_gf_m": 0.12873076195454686,
+      "sigma_mw_cycles": 0.07865946657029467
+    },
+    {
+      "group": "6-0-POAL",
+      "day": "2024-01-10",
+      "prn": "G24",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.025781954322449976,
+      "sigma_code_gf_m": 0.12873076195454686,
+      "sigma_mw_cycles": 0.07865946657029467
+    },
+    {
+      "group": "6-0-POAL",
+      "day": "2024-01-11",
+      "prn": "G06",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.058913887952555824,
+      "sigma_code_gf_m": 0.5430165332306324,
+      "sigma_mw_cycles": 0.36596310844651797
+    },
+    {
+      "group": "6-0-POAL",
+      "day": "2024-01-11",
+      "prn": "G06",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.05891388795255341,
+      "sigma_code_gf_m": 0.5430165332306326,
+      "sigma_mw_cycles": 0.36596310844651797
+    },
+    {
+      "group": "6-0-POAL",
+      "day": "2024-01-11",
+      "prn": "G06",
+      "codes": [
+        "C1",
+        "C2"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 80,
+      "event": 40,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.05891388795255464,
+      "sigma_code_gf_m": 0.5430165332306324,
+      "sigma_mw_cycles": 0.36596310844651797
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.03038910937965042,
+      "sigma_code_gf_m": 0.09037211015937946,
+      "sigma_mw_cycles": 0.03619352626020671
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.030389109379647214,
+      "sigma_code_gf_m": 0.09037211015937945,
+      "sigma_mw_cycles": 0.03619352626020671
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.03038910937965064,
+      "sigma_code_gf_m": 0.09037211015937945,
+      "sigma_mw_cycles": 0.03619352626020671
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "G08",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.011732482401591922,
+      "sigma_code_gf_m": 0.10033056184018858,
+      "sigma_mw_cycles": 0.06367334598697275
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "G08",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.011732482401601456,
+      "sigma_code_gf_m": 0.10033056184018826,
+      "sigma_mw_cycles": 0.06367334598697275
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-10",
+      "prn": "G08",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.011732482401607007,
+      "sigma_code_gf_m": 0.10033056184018728,
+      "sigma_mw_cycles": 0.06367334598697275
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.021645930203697008,
+      "sigma_code_gf_m": 0.06595110869199286,
+      "sigma_mw_cycles": 0.029664841910409107
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.021645930203700498,
+      "sigma_code_gf_m": 0.06595110869199286,
+      "sigma_mw_cycles": 0.029664841910409107
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "C01",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.021645930203697726,
+      "sigma_code_gf_m": 0.06595110869199287,
+      "sigma_mw_cycles": 0.029664841910409107
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "G08",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "repaired",
+      "sigma_phase_tecu": 0.015224790200407063,
+      "sigma_code_gf_m": 0.12974609788629887,
+      "sigma_mw_cycles": 0.0825374791705004
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "G08",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.01522479020040759,
+      "sigma_code_gf_m": 0.12974609788629812,
+      "sigma_mw_cycles": 0.0825374791705004
+    },
+    {
+      "group": "6-0-CIBG",
+      "day": "2024-01-11",
+      "prn": "G08",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.015224790200407897,
+      "sigma_code_gf_m": 0.12974609788629812,
+      "sigma_mw_cycles": 0.0825374791705004
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-10",
+      "prn": "C11",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "phase_repaired",
+      "sigma_phase_tecu": 0.036068315980358936,
+      "sigma_code_gf_m": 0.14139003339580322,
+      "sigma_mw_cycles": 0.06695190460965258
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-10",
+      "prn": "C11",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.03606831598035972,
+      "sigma_code_gf_m": 0.14139003339580358,
+      "sigma_mw_cycles": 0.06695190460965258
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-10",
+      "prn": "C11",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "code_ambiguous",
+      "sigma_phase_tecu": 0.03606831598035719,
+      "sigma_code_gf_m": 0.14139003339580358,
+      "sigma_mw_cycles": 0.06695190460965258
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-10",
+      "prn": "G11",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.03552838185732724,
+      "sigma_code_gf_m": 0.16163496014778653,
+      "sigma_mw_cycles": 0.1419838214994915
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-10",
+      "prn": "G11",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.03552838185733063,
+      "sigma_code_gf_m": 0.16163496014778653,
+      "sigma_mw_cycles": 0.1419838214994915
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-10",
+      "prn": "G11",
+      "codes": [
+        "C1C",
+        "C2W"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "physical_inconsistent",
+      "sigma_phase_tecu": 0.03552838185733477,
+      "sigma_code_gf_m": 0.16163496014778672,
+      "sigma_mw_cycles": 0.1419838214994915
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-11",
+      "prn": "C12",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        5,
+        0
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "unstable_trend",
+      "sigma_phase_tecu": 0.12576878835323888,
+      "sigma_code_gf_m": 0.15072404099854175,
+      "sigma_mw_cycles": 0.10729767908042061
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-11",
+      "prn": "C12",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        0,
+        -1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "unstable_trend",
+      "sigma_phase_tecu": 0.1257687883532395,
+      "sigma_code_gf_m": 0.15072404099854325,
+      "sigma_mw_cycles": 0.10729767908042061
+    },
+    {
+      "group": "6-0-BELE",
+      "day": "2024-01-11",
+      "prn": "C12",
+      "codes": [
+        "C2I",
+        "C6I"
+      ],
+      "jump": [
+        1,
+        1
+      ],
+      "samples": 40,
+      "event": 20,
+      "detected": true,
+      "status": "unstable_trend",
+      "sigma_phase_tecu": 0.12576878835324629,
+      "sigma_code_gf_m": 0.15072404099854225,
+      "sigma_mw_cycles": 0.10729767908042061
+    }
+  ]
+}

@@ -42,8 +42,7 @@ def read_observations(obs: list[Path], engine: Engine) -> pl.DataFrame:
 def calculate(
     obs: list[Path], nav: list[Path], bias: list[Path] | None, engine: Engine
 ) -> pl.DataFrame:
-    header, lf = gt.read_rinex_obs(obs, include_lli=True)
-    return gt.calc_tec_from_df(lf, header, bias, nav_fn=nav).collect(engine=engine)
+    return gt.calc_tec_from_rinex(obs, nav, bias).collect(engine=engine)
 
 
 def calculate_from_df(
@@ -113,6 +112,7 @@ def write_markdown(
         + " |",
         f"| Polars threads / warm-up / repeats | {metadata['polars_threads']} / {metadata['warmup']} / {metadata['repeats']} |",
         f"| Native SHA-256 | {metadata['native_core_sha256']} |",
+        f"| TEC cycle-slip policy | {metadata['tec_cycle_slip_mode']}; batch GF/MW, configured observation projection, LLI enabled |",
         "",
     ]
     for engine in ENGINES:
@@ -223,6 +223,7 @@ def main() -> None:
         "native_core_sha256": hashlib.sha256(
             Path(core.__file__).read_bytes()
         ).hexdigest(),
+        "tec_cycle_slip_mode": gt.TECConfig().cycle_slip_mode,
         "repeats": args.repeats,
         "warmup": args.warmup,
         "stages": args.stages,

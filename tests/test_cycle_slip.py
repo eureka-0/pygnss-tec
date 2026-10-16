@@ -11,10 +11,10 @@ from gnss_tec.configuration import TECConfig
 
 
 @pytest.mark.parametrize("cadence", [0.1, 1, 30])
-def test_rapid_ionosphere_is_preserved(cadence):
+def test_basic_mode_preserves_rapid_ionosphere(cadence):
     tec = np.r_[np.linspace(30, 31, 10), np.linspace(39, 41, 10)]
     h, obs = physical_observations(tec, cadence=cadence)
-    result = calculate(h, obs)
+    result = calculate(h, obs, cycle_slip_mode="basic")
     np.testing.assert_allclose(result["stec_p_raw"], tec, atol=1e-6, rtol=0)
     np.testing.assert_allclose(result["stec"], tec, atol=1e-6, rtol=0)
     assert result["arc_id"].n_unique() == 1
@@ -46,7 +46,7 @@ def test_unflagged_phase_jump_is_preserved_without_heuristic_segmentation():
     header, obs = physical_observations(np.full(20, 30.0))
     jump = np.r_[np.zeros(10), np.full(10, 5.0)]
     obs = obs.with_columns(pl.Series("L1C", obs["L1C"].to_numpy() + jump))
-    result = calculate(header, obs)
+    result = calculate(header, obs, cycle_slip_mode="basic")
     assert result["arc_id"].n_unique() == 1
     assert result["qc_reason"].unique().to_list() == ["ok"]
     expected = (obs["L1C"] / F1 - obs["L2W"] / F2) * C * K

@@ -1,6 +1,8 @@
 """Full two-day reader comparisons and compact TEC windows from four receivers."""
 
+import json
 import math
+from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
@@ -12,6 +14,8 @@ import pytest
 from helpers import assert_valid_tec_frame
 from polars.testing import assert_frame_equal
 from real_observations import OBSERVATION_CODES, collect_short_windows
+from slip_reference import assert_continuous, offsets
+from test_slip_repair import native
 
 import gnss_tec as gt
 from gnss_tec.calculation.observation_geometry import _prepare_observations
@@ -105,6 +109,196 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
             bias=station_bias,
         )
     return data
+
+
+@pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
+@pytest.mark.parametrize("hour,minute_start", [(18, 0), (18, 30), (6, 0)])
+def test_real_paired_injections_across_stations_and_days(
+    multiday_data, station, record_property, hour, minute_start
+):
+    """Known added integers on real noise; natural events have no truth labels.
+
+    Evaluate two GPS days and each available selected frequency pair. A rejected
+    repair is a measured fallback, never scored as a recovered integer.
+    """
+    data = multiday_data[station]
+    gps = pl.col("time") + pl.duration(seconds=18)
+    windows = data.full_observations.filter(
+        (gps.dt.hour() == hour)
+        & gps.dt.minute().is_between(minute_start, minute_start + 20, closed="left")
+    )
+    observed = gt.calc_tec_from_df(
+        windows,
+        data.header,
+        data.bias,
+        gt.TECConfig(retain_diagnostics="all", cycle_slip_mode="basic"),
+        nav_fn=data.nav,
+    ).collect(engine="in-memory")
+    # Replay the previous 99-event cohort without selecting cleaner arcs.
+    ledger_path = (
+        Path(__file__).resolve().parents[1] / "tests/fixtures/cycle-slip-events.json"
+    )
+    ledger = json.loads(ledger_path.read_text())["events"]
+    identities = {}
+    for record in ledger:
+        if record["group"] == f"{hour}-{minute_start}-{station}":
+            identity = (record["day"], record["prn"], *record["codes"])
+            identities[identity] = record
+    covered = set()
+    attempts = repairs = detected = false_splits = 0
+    absolute_errors, smooth_before, smooth_after, public_smoothness = [], [], [], []
+    rejection_reasons = Counter()
+    event_records = []
+    for (day, prn, first, second), identity in identities.items():
+        samples = identity["samples"]
+        group = observed.filter(
+            pl.col("qc_valid")
+            & (gps.dt.date().cast(pl.String) == day)
+            & (pl.col("prn") == prn)
+            & (pl.col("C1_code") == first)
+            & (pl.col("C2_code") == second)
+        )
+        if "first_time_ns" in identity:
+            group = group.filter(
+                pl.col("time")
+                .cast(pl.Int64)
+                .is_between(identity["first_time_ns"], identity["last_time_ns"])
+            )
+        if len(group) != samples:
+            matching = [
+                part for part in group.partition_by("arc_id") if len(part) == samples
+            ]
+            assert len(matching) == 1, (station, day, prn, samples, len(group))
+            group = matching[0]
+        key = (day, first, second)
+        frame = group.select(
+            pl.col("time").cast(pl.Int64),
+            pl.col("station", "prn", "C1_code", "C2_code").cast(pl.String),
+            pl.lit("A").alias("_receiver_state"),
+            pl.lit(True).alias("_numeric_valid"),
+            pl.col("L1_lli", "L2_lli").cast(pl.UInt8),
+            pl.col("epoch_flag").cast(pl.Int64),
+            "stec_p_raw",
+            "stec_g",
+            "mw",
+            "C1_freq",
+            "C2_freq",
+        )
+        covered.add(key)
+        event = len(frame) // 2
+        f1, f2 = frame["C1_freq"][0], frame["C2_freq"][0]
+        k = f1**2 * f2**2 / (f1**2 - f2**2) / 40.3e16
+        for n1, n2 in ((5, 0), (0, -1), (1, 1)):
+            after = (pl.int_range(pl.len()) >= event).cast(pl.Float64)
+            injected = frame.with_columns(
+                (pl.col("stec_p_raw") + after * k * c * (n1 / f1 - n2 / f2)).alias(
+                    "stec_p_raw"
+                ),
+                (pl.col("mw") + after * (n1 - n2)).alias("mw"),
+            )
+            result = native(injected)
+            attempts += 1
+            is_detected = int(result["arc_id"][event] != result["arc_id"][event - 1])
+            detected += is_detected
+            false_splits += (
+                int((np.diff(result["arc_id"].to_numpy()) > 0).sum()) - is_detected
+            )
+            is_repaired = result["slip_status"][event] in (
+                "phase_repaired",
+                "phase_continuous",
+            )
+            repairs += int(is_repaired)
+            if is_detected and not is_repaired:
+                rejection_reasons[result["slip_status"][event]] += 1
+            event_records.append(
+                {
+                    "day": str(key[0]),
+                    "prn": group["prn"][0],
+                    "codes": [key[1], key[2]],
+                    "jump": [n1, n2],
+                    "samples": len(frame),
+                    "event": event,
+                    "detected": bool(is_detected),
+                    "status": result["slip_status"][event],
+                    "sigma_phase_tecu": result["slip_sigma_phase"][event],
+                    "sigma_code_gf_m": result["slip_sigma_gf"][event],
+                    "sigma_mw_cycles": result["slip_sigma_mw"][event],
+                }
+            )
+            events, corrections = assert_continuous(result, injected)
+            assert int(is_repaired) == is_detected
+            assert result["slip_n1"].null_count() == len(frame)
+            assert result["slip_n2"].null_count() == len(frame)
+            times = injected["time"].to_numpy().astype(float) / 1e9
+            residual = offsets(times, result["stec_p_corrected"].to_numpy(), events)
+            smooth_before.extend(np.abs(corrections[events]))
+            smooth_after.extend(np.abs(residual[events]))
+            # Verify the user-facing STEC, including code leveling, from selected
+            # real code/carrier measurements rather than only the native phase.
+            selected_obs = group.select(
+                "time",
+                "station",
+                "prn",
+                "azimuth",
+                "elevation",
+                "rx_lat",
+                "rx_lon",
+                pl.col("C1_val").alias(first),
+                pl.col("C2_val").alias(second),
+                (pl.col("L1_val") + after * n1).alias("L" + first[1:]),
+                (pl.col("L2_val") + after * n2).alias("L" + second[1:]),
+                pl.col("L1_lli").alias("L" + first[1:] + "_lli"),
+                pl.col("L2_lli").alias("L" + second[1:] + "_lli"),
+            )
+            system = str(prn)[0]
+            version = data.header.version[0]
+            public = gt.calc_tec_from_df(
+                selected_obs,
+                data.header,
+                config=gt.TECConfig(
+                    constellations=system,
+                    rx_bias=None,
+                    retain_diagnostics="all",
+                    c1_codes={version: {system: [first]}},
+                    c2_codes={version: {system: [second]}},
+                ),
+            ).collect(engine="in-memory")
+            public_events = (
+                public["slip_status"]
+                .is_in(["phase_repaired", "phase_continuous"])
+                .to_numpy()
+            )
+            public_residual = offsets(times, public["stec"].to_numpy(), public_events)
+            np.testing.assert_allclose(
+                public_residual[public_events], 0, rtol=0, atol=1e-6
+            )
+            public_smoothness.extend(np.abs(public_residual[public_events]))
+            if is_repaired:
+                absolute_errors.append(
+                    abs(result["slip_correction"][event] - k * c * (n1 / f1 - n2 / f2))
+                )
+    assert repairs == detected
+    assert len({key[0] for key in covered}) == 2, (station, covered)
+    if hour == 18 and minute_start == 0:
+        assert repairs > 0, (
+            f"{station}: real noisy development controls must exercise correction"
+        )
+    for name, value in {
+        "paired_injections": attempts,
+        "detected": detected,
+        "repairs": repairs,
+        "detected_unrepaired": detected - repairs,
+        "remaining_discontinuities": sum(value > 1e-7 for value in smooth_after),
+        "false_splits": false_splits,
+        "covered_pairs_days": len(covered),
+        "max_absolute_error_tecu": max(absolute_errors, default=0.0),
+        "max_smoothness_before_tecu": max(smooth_before, default=0.0),
+        "max_smoothness_after_tecu": max(smooth_after, default=0.0),
+        "max_public_stec_discontinuity_tecu": max(public_smoothness, default=0.0),
+        "rejection_reasons": json.dumps(rejection_reasons, sort_keys=True),
+        "event_records": json.dumps(event_records),
+    }.items():
+        record_property(name, value)
 
 
 @pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
@@ -223,12 +417,14 @@ def test_multiday_shuffled_gps_and_parquet(multiday_data, station, tmp_path):
 
 @pytest.mark.parametrize("station", ["DGAR", "POAL", "CIBG", "BELE"])
 def test_multiday_arc_and_daily_dcb_reference(multiday_data, station):
+    # Frozen basic-mode contract: each physical arc has its own code level.
+    # Repair-mode continuity is tested against paired known-integer injections.
     data = multiday_data[station]
     result = gt.calc_tec_from_df(
         data.observations,
         data.header,
         data.bias,
-        gt.TECConfig(retain_diagnostics="all"),
+        gt.TECConfig(retain_diagnostics="all", cycle_slip_mode="basic"),
         nav_fn=data.nav,
     ).collect(engine="in-memory")
     result = result.filter("qc_valid")

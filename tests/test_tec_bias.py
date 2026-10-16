@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import polars as pl
 import pytest
-from synthetic_observations import C, K, bias_rows, calculate, physical_observations
+from synthetic_observations import F1, C, K, bias_rows, calculate, physical_observations
 
 import gnss_tec as gt
 import gnss_tec.calculation.tec as tc
@@ -68,6 +68,93 @@ def test_external_satellite_and_receiver_biases_are_not_subtracted_twice(monkeyp
     assert result["calibration_status"].unique().to_list() == [
         "external_code_corrected"
     ]
+
+
+def test_repair_continuity_preserves_independent_bias_levels(monkeypatch):
+    """Align raw and calibrated STEC independently after bias-reference changes."""
+    h, obs = physical_observations(np.full(120, 30.0))
+    code_bias = np.r_[np.ones(80), np.full(40, 2.0)]
+    code_noise = np.r_[np.full(40, -0.02), np.full(40, 0.02), np.zeros(40)]
+    phase_jump = np.r_[np.zeros(40), np.full(80, 5.0)]
+    obs = obs.with_columns(
+        pl.Series("C2W", obs["C2W"].to_numpy() + (code_bias + code_noise) / K),
+        pl.Series("L1C", obs["L1C"].to_numpy() + phase_jump),
+    )
+    boundary = obs["time"][80].replace(tzinfo=None) + timedelta(seconds=18)
+    product = bias_rows(
+        [datetime(2024, 1, 10), boundary],
+        [boundary, datetime(2024, 1, 11)],
+        [-1 / (C * 1e-9 * K), -2 / (C * 1e-9 * K)],
+    )
+    monkeypatch.setattr(tc, "read_bias", lambda _: product.lazy())
+    result = calculate(h, obs, "unused")
+    assert result["slip_status"][40] == "phase_repaired"
+    assert result["slip_n1"][40] is None
+    assert result["arc_id"][40] != result["arc_id"][39]
+    np.testing.assert_allclose(result["stec_dcb_corrected"], 30, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(result["stec"], 31, rtol=0, atol=1e-6)
+    assert result["slip_stec_correction"][80] == pytest.approx(1, abs=1e-6)
+    assert result["slip_dcb_correction"][80] == pytest.approx(0, abs=1e-6)
+    np.testing.assert_allclose(result["vtec"] * result["mf"], 30, rtol=0, atol=1e-6)
+
+
+@pytest.mark.parametrize("duration", [1, 6])
+@pytest.mark.parametrize("bias_error", [None, 0.0, 3.0])
+def test_signal_switch_keeps_each_final_product_continuous(
+    monkeypatch, duration, bias_error
+):
+    """A temporary fallback has different frequencies, ambiguities and DCBs."""
+    truth = 30 + np.arange(80) * 0.01
+    header, obs = physical_observations(truth)
+    switched = (np.arange(len(obs)) >= 40) & (np.arange(len(obs)) < 40 + duration)
+    f5 = 1176.45e6
+    k15 = F1**2 * f5**2 / (F1**2 - f5**2) / 40.3e16
+    distance = 21_000_000.0
+    obs = obs.with_columns(
+        pl.Series("C1X", np.where(switched, obs["C1C"].to_numpy(), np.nan)),
+        pl.Series("L1X", np.where(switched, obs["L1C"].to_numpy() + 7, np.nan)),
+        pl.Series(
+            "C5X",
+            np.where(switched, distance + 40.3e16 * truth / f5**2 + 83 / k15, np.nan),
+        ),
+        pl.Series(
+            "L5X",
+            np.where(
+                switched, (distance - 40.3e16 * truth / f5**2) * f5 / C - 2, np.nan
+            ),
+        ),
+        pl.Series("C1C", np.where(switched, np.nan, obs["C1C"].to_numpy())),
+        pl.Series("L1C", np.where(switched, np.nan, obs["L1C"].to_numpy())),
+        pl.Series("C2W", np.where(switched, np.nan, obs["C2W"].to_numpy() + 1 / K)),
+        pl.Series("L2W", np.where(switched, np.nan, obs["L2W"].to_numpy())),
+    )
+    if bias_error is not None:
+        primary = bias_rows(
+            [datetime(2024, 1, 10)], [datetime(2024, 1, 11)], [-1 / (C * 1e-9 * K)]
+        )
+        fallback = primary.with_columns(
+            pl.lit("C1X").cast(pl.Categorical).alias("obs1"),
+            pl.lit("C5X").cast(pl.Categorical).alias("obs2"),
+            pl.lit(-(83 - bias_error) / (C * 1e-9 * k15)).alias("estimated_value"),
+        )
+        monkeypatch.setattr(
+            tc, "read_bias", lambda _: pl.concat([primary, fallback]).lazy()
+        )
+    result = calculate(header, obs, "unused" if bias_error is not None else None)
+    assert result["C2_code"][40] == "C5X"
+    assert result["C2_code"][40 + duration] == "C2W"
+    for name in ("stec_p_corrected", "stec", "stec_dcb_corrected"):
+        if name in result.columns:
+            np.testing.assert_allclose(
+                np.diff(result[name]), np.diff(truth), rtol=0, atol=1e-6
+            )
+    source = "stec_dcb_corrected" if bias_error is not None else "stec"
+    np.testing.assert_allclose(
+        result["vtec"] * result["mf"], result[source], rtol=0, atol=1e-12
+    )
+    if bias_error == 0:
+        assert result["slip_stec_correction"][40] == pytest.approx(82, abs=1e-6)
+        assert result["slip_dcb_correction"][40] == pytest.approx(0, abs=1e-6)
 
 
 @pytest.mark.parametrize("method", ["mstd", "lsq"])

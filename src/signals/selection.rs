@@ -1,6 +1,7 @@
 //! Score signal pairs in place without expanding each epoch into candidate rows.
 use std::{cmp::Reverse, sync::Arc};
 
+use super::column;
 use arrow::{
     array::{
         Array, ArrayRef, BooleanArray, Float64Array, Int64Array, LargeStringArray,
@@ -51,144 +52,11 @@ struct Winner<'a> {
     rx: Option<&'a Interval>,
 }
 
-fn column<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> PyResult<&'a T> {
-    batch
-        .column_by_name(name)
-        .and_then(|array| array.as_any().downcast_ref())
-        .ok_or_else(|| {
-            PyValueError::new_err(format!("Missing or incompatible selection column: {name}"))
-        })
-}
-
 fn optional<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> PyResult<Option<&'a T>> {
     batch
         .column_by_name(name)
         .map(|_| column(batch, name))
         .transpose()
-}
-
-pub(crate) fn basic_arcs(input: RecordBatch, cadence: Option<f64>) -> PyResult<RecordBatch> {
-    let times = column::<Int64Array>(&input, "time")?;
-    let stations = column::<LargeStringArray>(&input, "station")?;
-    let satellites = column::<LargeStringArray>(&input, "prn")?;
-    let first = column::<LargeStringArray>(&input, "C1_code")?;
-    let second = column::<LargeStringArray>(&input, "C2_code")?;
-    let state = column::<LargeStringArray>(&input, "_receiver_state")?;
-    let valid = column::<BooleanArray>(&input, "_numeric_valid")?;
-    let lli1 = column::<UInt8Array>(&input, "L1_lli")?;
-    let lli2 = column::<UInt8Array>(&input, "L2_lli")?;
-    let flags = column::<Int64Array>(&input, "epoch_flag")?;
-    if times.null_count() != 0 || satellites.null_count() != 0 {
-        return Err(PyValueError::new_err(
-            "Time and PRN must not contain null values.",
-        ));
-    }
-    if cadence.is_some_and(|value| !value.is_finite() || value <= 0.0) {
-        return Err(PyValueError::new_err(
-            "Cadence must be finite and positive.",
-        ));
-    }
-    fn string(array: &LargeStringArray, row: usize) -> Option<&str> {
-        array.is_valid(row).then(|| array.value(row))
-    }
-    let lli = |row| {
-        (if lli1.is_valid(row) {
-            lli1.value(row)
-        } else {
-            0
-        }) | (if lli2.is_valid(row) {
-            lli2.value(row)
-        } else {
-            0
-        })
-    };
-    let is_valid = |row| valid.is_valid(row) && valid.value(row);
-    let mut previous: FxHashMap<_, (usize, u32)> = FxHashMap::default();
-    let mut inferred: FxHashMap<_, f64> = FxHashMap::default();
-    if cadence.is_none() {
-        for row in 0..input.num_rows() {
-            let key = (string(stations, row), satellites.value(row));
-            if let Some(&(before, _)) = previous.get(&key) {
-                let dt = (times.value(row) as i128 - times.value(before) as i128) as f64 / 1e9;
-                if dt <= 0.0 {
-                    return Err(PyValueError::new_err(
-                        "Observation times must be finite and unique within each station/PRN.",
-                    ));
-                }
-                inferred
-                    .entry(key)
-                    .and_modify(|value| *value = value.min(dt))
-                    .or_insert(dt);
-            }
-            previous.insert(key, (row, 0));
-        }
-        previous.clear();
-    }
-    const REASONS: [&str; 8] = [
-        "invalid_observation_or_geometry",
-        "half_cycle_invalid",
-        "loss_of_lock",
-        "epoch_event",
-        "reacquisition_gap",
-        "signal_pair_change",
-        "receiver_state_change",
-        "reacquisition_after_rejection",
-    ];
-    let names: Vec<_> = (0..256)
-        .map(|code| {
-            let names = REASONS
-                .iter()
-                .enumerate()
-                .filter_map(|(bit, name)| ((code & (1 << bit)) != 0).then_some(*name))
-                .collect::<Vec<_>>();
-            if names.is_empty() {
-                "ok".to_string()
-            } else {
-                names.join("|")
-            }
-        })
-        .collect();
-    let mut arcs = Vec::with_capacity(input.num_rows());
-    let mut reasons = LargeStringBuilder::new();
-    for row in 0..input.num_rows() {
-        let key = (string(stations, row), satellites.value(row));
-        let bits = lli(row);
-        let mut reason = usize::from(!is_valid(row))
-            | (usize::from(bits & 2 != 0) << 1)
-            | (usize::from(bits & 1 != 0) << 2)
-            | (usize::from(flags.is_valid(row) && flags.value(row) != 0) << 3);
-        let mut arc = 0;
-        if let Some(&(before, previous_arc)) = previous.get(&key) {
-            let dt = (times.value(row) as i128 - times.value(before) as i128) as f64 / 1e9;
-            if dt <= 0.0 {
-                return Err(PyValueError::new_err(
-                    "Observation times must be finite and unique within each station/PRN.",
-                ));
-            }
-            let interval = cadence.unwrap_or_else(|| inferred.get(&key).copied().unwrap_or(1.0));
-            reason |= usize::from(dt > interval * 1.5) << 4;
-            reason |= usize::from(
-                string(first, row) != string(first, before)
-                    || string(second, row) != string(second, before),
-            ) << 5;
-            reason |= usize::from(string(state, row) != string(state, before)) << 6;
-            reason |= usize::from(!is_valid(before) || lli(before) & 2 != 0) << 7;
-            arc = previous_arc + u32::from(reason != 0);
-        }
-        previous.insert(key, (row, arc));
-        arcs.push(arc);
-        reasons.append_value(&names[reason]);
-    }
-    let fields = vec![
-        Field::new("arc_id", DataType::UInt32, false),
-        Field::new("qc_reason", DataType::LargeUtf8, false),
-    ];
-    let arrays: Vec<ArrayRef> = vec![
-        Arc::new(arrow::array::UInt32Array::from(arcs)),
-        Arc::new(reasons.finish()),
-    ];
-    RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)
-        .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 fn value(array: &Float64Array, row: usize) -> Option<f64> {

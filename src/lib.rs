@@ -1,11 +1,11 @@
 //! Python entry points; parsing, table construction and geometry live in Rust modules.
-mod geometry;
-mod glonass;
-mod navigation;
-mod observations;
-mod quality;
-mod rinex_io;
-mod selection;
+mod calculation;
+mod io;
+mod signals;
+
+use calculation::{geometry, navigation};
+use io::{observations, quality, rinex as rinex_io};
+use signals::{arcs as slips, selection};
 
 use std::str::FromStr;
 
@@ -133,6 +133,11 @@ fn _read_obs(
         events.sort_by_key(|event| event.0);
         Ok::<_, PyErr>(events)
     })?;
+    let integer_cycles = rinex_io::integer_cycles(&obs_fn)?
+        && !events.iter().any(|(_, _, text)| {
+            text.contains("WAVELENGTH FACT L1/2") || text.contains("SYS / SCALE FACTOR")
+        });
+    header.set_item("phase_integer_cycles", integer_cycles)?;
     header.set_item("epoch_events", events)?;
     header.set_item("first_epoch", first.map(quality::unix_ns).transpose()?)?;
     let batch = py.detach(|| {
@@ -170,6 +175,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_satellite_positions, m)?)?;
     m.add_function(wrap_pyfunction!(_select_observations, m)?)?;
     m.add_function(wrap_pyfunction!(_basic_arcs, m)?)?;
+    m.add_function(wrap_pyfunction!(_slip_arcs, m)?)?;
+    m.add_function(wrap_pyfunction!(_smooth_stec, m)?)?;
     m.add_function(wrap_pyfunction!(_azimuth_elevation, m)?)?;
     m.add_function(wrap_pyfunction!(_ecef_to_geodetic, m)?)?;
     Ok(())
@@ -195,8 +202,28 @@ fn _basic_arcs(
     input: PyArrowType<RecordBatch>,
     cadence: Option<f64>,
 ) -> PyResult<PyArrowType<RecordBatch>> {
-    py.detach(|| selection::basic_arcs(input.0, cadence))
+    py.detach(|| slips::basic_arcs(input.0, cadence))
         .map(PyArrowType)
+}
+
+#[pyfunction]
+fn _slip_arcs(
+    py: Python<'_>,
+    input: PyArrowType<RecordBatch>,
+    cadence: Option<f64>,
+    repair: bool,
+    integer_cycles: bool,
+) -> PyResult<PyArrowType<RecordBatch>> {
+    py.detach(|| slips::arcs(input.0, cadence, repair, integer_cycles))
+        .map(PyArrowType)
+}
+
+#[pyfunction]
+fn _smooth_stec(
+    py: Python<'_>,
+    input: PyArrowType<RecordBatch>,
+) -> PyResult<PyArrowType<RecordBatch>> {
+    py.detach(|| slips::smooth_stec(input.0)).map(PyArrowType)
 }
 
 #[pyfunction]
