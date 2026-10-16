@@ -14,14 +14,6 @@ use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
 use rinex::prelude::*;
 use rustc_hash::FxHashSet;
 
-#[cfg(all(feature = "custom-alloc", target_family = "unix"))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[cfg(all(feature = "custom-alloc", target_family = "windows"))]
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 // GPS, BeiDou, Galileo, GLONASS, QZSS, IRNSS, SBAS.
 const ALL_CONSTELLATIONS: &str = "GCERJIS";
 

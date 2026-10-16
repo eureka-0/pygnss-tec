@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Remove the `custom-alloc` feature; the default allocator is now used for all builds, and the `custom-alloc` feature is no longer available.
 - Default `TECConfig.cycle_slip_mode` to `'repair'`: batch GF/MW detection with continuous offsets accepted solely by final STEC temporal continuity.
   Every localized edge is aligned without code/noise/integer vetoes.
   `'detect'` and historical `'basic'` remain available.
