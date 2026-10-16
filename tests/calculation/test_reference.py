@@ -1,0 +1,347 @@
+"""Scientific and ordering contracts shared by Polars 1.x and 2.x."""
+
+import math
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Literal
+
+import numpy as np
+import polars as pl
+import pytest
+from polars.testing import assert_frame_equal
+
+import gnss_tec as gt
+import gnss_tec.calculation.tec as tc
+from gnss_tec.constants import Re, c
+from gnss_tec.io.rinex import RinexObsHeader
+
+
+@pytest.fixture
+def observations() -> tuple[RinexObsHeader, pl.DataFrame]:
+    header = RinexObsHeader(
+        version="3.04",
+        constellation="G",
+        marker_name="TEST",
+        marker_type=None,
+        rx_ecef=(6378137.0, 0.0, 0.0),
+        rx_geodetic=(0.0, 0.0, 0.0),
+        sampling_interval=30,
+        leap_seconds=18,
+    )
+    f1, f2 = 1575.42e6, 1227.60e6
+    coeff = f1**2 * f2**2 / (f1**2 - f2**2) / 40.3e16
+    # Two arcs per PRN, crossing a day boundary; slips after the 10-point window.
+    seconds = [i * 30 for i in range(24)] + [1500 + i * 30 for i in range(24)]
+    start = datetime(2024, 1, 10, 23, 50, tzinfo=UTC)
+    phase = np.tile(np.r_[np.full(12, 5.0), np.full(12, 13.0)], 2)
+    df = pl.DataFrame(
+        {
+            "time": [start + timedelta(seconds=s) for s in seconds] * 2,
+            "station": ["TEST"] * 96,
+            "prn": ["G02"] * 48 + ["G01"] * 48,
+            "azimuth": [90.0] * 96,
+            "elevation": np.tile(np.linspace(30, 80, 48), 2),
+            "C1C": [0.0] * 96,
+            "C2W": np.tile(np.linspace(30, 50, 48), 2) / coeff,
+            "L1C": np.tile(phase, 2) * f1 / (c * coeff),
+            "L2W": [0.0] * 96,
+            "L1C_lli": np.tile([0] * 12 + [1] + [0] * 11, 4).astype(np.uint8),
+        }
+    ).with_columns(
+        pl.col("elevation", "azimuth").cast(pl.Float32),
+        pl.col("time").dt.cast_time_unit("ns"),
+    )
+    return header, df
+
+
+def _calculate(
+    df: pl.DataFrame | pl.LazyFrame,
+    header: RinexObsHeader,
+    *,
+    cycle_slip_mode: Literal["basic", "detect", "repair"] = "repair",
+) -> pl.DataFrame:
+    return gt.calc_tec_from_df(
+        df,
+        header,
+        config=gt.TECConfig(
+            rx_bias=None, retain_diagnostics="all", cycle_slip_mode=cycle_slip_mode
+        ),
+    ).collect(engine="in-memory")
+
+
+def test_scientific_reference(observations):
+    header, raw = observations
+    # Freeze the legacy, independent-per-arc leveling formula here. Repair-mode
+    # continuity and corrected-phase leveling have separate physical oracles.
+    result = _calculate(raw, header, cycle_slip_mode="basic")
+    assert result.select("time", "station", "prn").equals(
+        result.select("time", "station", "prn").sort("time", "station", "prn")
+    )
+    f1, f2 = 1575.42e6, 1227.60e6
+    coeff = f1**2 * f2**2 / (f1**2 - f2**2) / 40.3e16
+    np.testing.assert_array_equal(
+        result["C1_freq"].to_numpy(), np.full(result.height, f1)
+    )
+    np.testing.assert_array_equal(
+        result["C2_freq"].to_numpy(), np.full(result.height, f2)
+    )
+    elevation = np.deg2rad(result["elevation"].to_numpy().astype(np.float64))
+    expected_mf = 1 / np.sqrt(1 - (Re / (Re + 400_000) * np.cos(elevation)) ** 2)
+    np.testing.assert_allclose(result["mf"].to_numpy(), expected_mf, rtol=0, atol=1e-12)
+    phase = result.select("time", "station", pl.col("prn").cast(pl.String)).join(
+        raw, on=["time", "station", "prn"], maintain_order="left"
+    )
+    expected_phase = (
+        (phase["L1C"].to_numpy() / f1 - phase["L2W"].to_numpy() / f2) * c * coeff
+    )
+    np.testing.assert_allclose(
+        result["stec_p"].to_numpy(), expected_phase, rtol=0, atol=1e-12
+    )
+    assert result["arc_id"].unique().sort().to_list() == [0, 1, 2, 3]
+    for group in result.partition_by("station", "prn", "arc_id"):
+        keys = group.select("time", "station", pl.col("prn").cast(pl.String))
+        source = keys.join(raw, on=["time", "station", "prn"], maintain_order="left")
+        expected_g = (source["C2W"].to_numpy() - source["C1C"].to_numpy()) * coeff
+        np.testing.assert_allclose(
+            group["stec_g"].to_numpy(), expected_g, rtol=0, atol=1e-12
+        )
+        # Independent NumPy Float64 trigonometry and accurately rounded sums.
+        weights = (
+            np.sin(np.deg2rad(source["elevation"].to_numpy().astype(np.float64))) ** 2
+        )
+        offset = math.fsum(
+            (g - p) * w
+            for g, p, w in zip(expected_g, group["stec_p"], weights, strict=True)
+        ) / math.fsum(weights)
+        np.testing.assert_allclose(
+            group["stec"].to_numpy(),
+            group["stec_p"].to_numpy() + offset,
+            rtol=0,
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            group["vtec"].to_numpy(),
+            group["stec"].to_numpy() / group["mf"].to_numpy(),
+            rtol=0,
+            atol=1e-12,
+        )
+
+
+def test_float32_geometry_matches_float64_input(observations):
+    header, raw = observations
+    raw = raw.with_columns(
+        pl.lit(12.345678, dtype=pl.Float32).alias("rx_lat"),
+        pl.lit(45.678901, dtype=pl.Float32).alias("rx_lon"),
+    )
+    geometry = ["azimuth", "elevation", "rx_lat", "rx_lon"]
+    expected = _calculate(raw.with_columns(pl.col(geometry).cast(pl.Float64)), header)
+    actual = _calculate(raw.lazy(), header)
+    assert all(actual.schema[name] == pl.Float64 for name in geometry)
+    assert_frame_equal(actual, expected, check_exact=False, rel_tol=0, abs_tol=1e-12)
+
+
+def test_duplicate_times_are_rejected(observations):
+    header, raw = observations
+    with pytest.raises(ValueError, match="unique within each station/PRN"):
+        _calculate(
+            pl.concat([raw, raw.head(1)]), replace(header, sampling_interval=None)
+        )
+
+
+def test_no_inferable_interval_is_actionable(observations):
+    header, raw = observations
+    with pytest.raises(ValueError, match="Cannot infer sampling interval"):
+        _calculate(raw.head(1), replace(header, sampling_interval=None))
+
+
+def test_empty_and_zero_weight_arcs(observations):
+    header, raw = observations
+    assert _calculate(raw.head(0), header).is_empty()
+    zero = raw.with_columns(pl.lit(0.0, dtype=pl.Float32).alias("elevation"))
+    result = gt.calc_tec_from_df(
+        zero, header, config=gt.TECConfig(min_elevation=0, retain_diagnostics="all")
+    ).collect(engine="in-memory")
+    assert "offset" not in result.columns
+    assert result["qc_reason"].str.contains("no_weight_support").all()
+    assert result["stec"].null_count() == result.height
+
+
+def test_fractional_and_mixed_cadences(observations):
+    header, raw = observations
+    raw = raw.filter(pl.col("prn") == "G01").head(24)
+    base = raw["time"].item(0)
+    fast = raw.with_columns(
+        pl.Series("time", [base + timedelta(seconds=i * 0.5) for i in range(24)])
+    )
+    slow = raw.with_columns(
+        pl.lit("G02").alias("prn"),
+        pl.Series("time", [base + timedelta(seconds=i) for i in range(24)]),
+    )
+    mixed = pl.concat([slow, fast]).sample(fraction=1, shuffle=True, seed=4)
+    result = _calculate(mixed, replace(header, sampling_interval=None))
+    # Fast cadence selects the 20-sample correction window for all groups.
+    assert result.filter(pl.col("prn") == "G01")["stec_p"].item(12) == pytest.approx(13)
+    assert result.height == mixed.height
+
+
+def test_mixed_high_and_low_rate_inference_is_actionable(observations):
+    header, raw = observations
+    raw = raw.with_columns(
+        pl.when(pl.col("prn") == "G01")
+        .then(pl.col("time") - (pl.col("time") - pl.col("time").min()) / 2)
+        .otherwise(pl.col("time"))
+        .alias("time")
+    )
+    # 15 s and 30 s share the same arc/slip and bias-sampling settings.
+    assert _calculate(raw, replace(header, sampling_interval=None)).height == raw.height
+    raw = raw.with_columns(
+        pl.when(pl.col("prn") == "G01")
+        .then(pl.col("time") - (pl.col("time") - pl.col("time").min()) * (14 / 15))
+        .otherwise(pl.col("time"))
+        .alias("time")
+    )
+    with pytest.raises(ValueError, match="process sampling groups separately"):
+        _calculate(raw, replace(header, sampling_interval=None))
+
+
+def test_missing_second_band_is_preserved_until_observation_filter(observations):
+    header, raw = observations
+    missing = (
+        raw.drop("C2W", "L2W").lazy().with_columns(pl.col("prn").cast(pl.Categorical))
+    )
+    selected = tc._coalesce_observations(missing, None, gt.TECConfig(), "3").collect(
+        engine="in-memory"
+    )
+    assert selected.height == raw.height
+    assert selected["C2_code"].null_count() == raw.height
+    assert not _calculate(raw.drop("C2W", "L2W"), header)["qc_valid"].any()
+
+
+def test_weighted_code_priority_and_deterministic_ties(observations):
+    _, raw = observations
+    raw = raw.with_columns(
+        pl.col("C1C").alias("C1W"),
+        pl.col("C2W").alias("C2C"),
+        pl.col("C2W").alias("C2X"),
+        pl.col("L1C").alias("L1W"),
+        pl.col("L2W").alias("L2C"),
+        pl.col("L2W").alias("L2X"),
+    )
+    # Make (C1W,C2X) and (C1C,C2W) tie at score 2. The latter wins lexically.
+    bias = (
+        pl.DataFrame(
+            {
+                "station": [None, None],
+                "prn": ["G01", "G01"],
+                "obs1": ["C1W", "C1C"],
+                "obs2": ["C2X", "C2W"],
+                "bias_start": [datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None)]
+                * 2,
+                "estimated_value": [0.0, 0.0],
+            }
+        )
+        .with_columns(pl.col("prn", "obs1", "obs2").cast(pl.Categorical))
+        .with_columns(
+            (pl.col("bias_start") + pl.duration(days=1)).alias("bias_end"),
+            pl.lit("DSB").alias("bias"),
+            pl.lit("ns").alias("unit"),
+            pl.lit("G").alias("time_system"),
+        )
+    )
+    raw = raw.filter((pl.col("prn") == "G01") & (pl.col("time").dt.day() == 10))
+    selected = tc._coalesce_observations(
+        raw.lazy().with_columns(
+            pl.col("prn").cast(pl.Categorical),
+            pl.col("time").dt.replace_time_zone(None),
+        ),
+        bias.lazy(),
+        gt.TECConfig(rx_bias=None),
+        "3",
+    ).collect(engine="in-memory")
+    assert selected["C1_code"].unique().to_list() == ["C1C"]
+    assert selected["C2_code"].unique().to_list() == ["C2W"]
+    # Without bias filtering, score 0 must still win over any tie.
+    selected = tc._coalesce_observations(
+        raw.lazy().with_columns(pl.col("prn").cast(pl.Categorical)),
+        None,
+        gt.TECConfig(),
+        "3",
+    ).collect(engine="in-memory")
+    assert selected["C1_code"].unique().to_list() == ["C1W"]
+    assert selected["C2_code"].unique().to_list() == ["C2W"]
+
+
+@pytest.mark.parametrize("method,cadence", [("mstd", 1), ("lsq", 5)])
+def test_receiver_bias_high_rate_order(
+    observations, monkeypatch, method: Literal["mstd", "lsq"], cadence
+):
+    header, raw = observations
+    start = raw["time"].item(0)
+    raw = raw.with_columns(
+        pl.Series(
+            "time", [start + (time - start) / (30 / cadence) for time in raw["time"]]
+        )
+    )
+    bias = (
+        pl.DataFrame(
+            {
+                "station": [None, None],
+                "prn": ["G01", "G02"],
+                "obs1": ["C1C", "C1C"],
+                "obs2": ["C2W", "C2W"],
+                "bias_start": [datetime(2024, 1, 10, tzinfo=UTC).replace(tzinfo=None)]
+                * 2,
+                "estimated_value": [1.0, 1.0],
+            }
+        )
+        .with_columns(pl.col("prn", "obs1", "obs2").cast(pl.Categorical))
+        .with_columns(
+            (pl.col("bias_start") + pl.duration(days=1)).alias("bias_end"),
+            pl.lit("DSB").alias("bias"),
+            pl.lit("ns").alias("unit"),
+            pl.lit("G").alias("time_system"),
+        )
+    )
+    monkeypatch.setattr(tc, "read_bias", lambda _: bias.lazy())
+    config = gt.TECConfig(
+        rx_bias=method, missing_bias="keep_uncorrected", retain_diagnostics="all"
+    )
+    header = replace(header, sampling_interval=cadence)
+    expected = gt.calc_tec_from_df(raw, header, Path("unused"), config).collect(
+        engine="in-memory"
+    )
+    actual = gt.calc_tec_from_df(
+        raw.sample(fraction=1, shuffle=True, seed=6), header, Path("unused"), config
+    ).collect(engine="in-memory")
+    assert_frame_equal(actual, expected, check_exact=False, rel_tol=0, abs_tol=1e-8)
+
+
+@pytest.mark.parametrize("policy", ["warn", "error"])
+def test_missing_band_bias_diagnostics(observations, bias, policy):
+    header, raw = observations
+    missing = raw.drop("C2W", "L2W")
+    config = gt.TECConfig(rx_bias=None, missing_bias=policy)
+    if policy == "error":
+        with pytest.raises(ValueError, match="missing required bias columns"):
+            gt.calc_tec_from_df(missing, header, bias, config)
+    elif policy == "warn":
+        with pytest.warns(UserWarning, match="missing required bias columns"):
+            result = gt.calc_tec_from_df(missing, header, bias, config).collect(
+                engine="in-memory"
+            )
+        assert result.is_empty()
+    else:
+        assert (
+            gt.calc_tec_from_df(missing, header, bias, config)
+            .collect(engine="in-memory")
+            .is_empty()
+        )
+
+
+def test_single_point_and_all_missing_phase(observations):
+    header, raw = observations
+    single = _calculate(raw.head(1), header)
+    assert single["stec"].item() == pytest.approx(30.0, abs=1e-12)
+    missing = raw.with_columns(pl.lit(None, dtype=pl.Float64).alias("L1C"))
+    assert not _calculate(missing, header)["qc_valid"].any()

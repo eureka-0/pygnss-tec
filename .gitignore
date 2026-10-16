@@ -15,3 +15,7 @@ target/
 
 # Jupyter Notebooks
 *.ipynb
+
+# Documentation-generated files
+site/
+.cache/

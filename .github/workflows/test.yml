@@ -1,4 +1,4 @@
-name: Pytest
+name: Tests
 
 on:
   pull_request:
@@ -34,24 +34,20 @@ jobs:
         run: uv run --no-sync ty check .
       - name: Run tests
         run: uv run --no-sync pytest
-      - name: Check custom allocators
-        run: cargo check --locked --features custom-alloc
 
   pytest-compatibility:
-    name: Python ${{ matrix.python }} / ${{ matrix.polars }} / ${{ matrix.engine }}
+    name: Python ${{ matrix.python }} / ${{ matrix.polars }} / in-memory
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { python: "3.12", polars: "polars==1.40.0", engine: in-memory }
-          - { python: "3.12", polars: "polars==1.40.0", engine: streaming }
-          - { python: "3.12", polars: "polars>=1.40,<2", engine: auto }
-          - { python: "3.12", polars: "polars==2.0.0", engine: auto }
-          - { python: "3.13", polars: "polars>=2,<3", engine: auto }
-          - { python: "3.14", polars: "polars>=1.40,<2", engine: auto }
-          - { python: "3.14", polars: "polars>=2,<3", engine: in-memory }
-          - { python: "3.14", polars: "polars>=2,<3", engine: streaming }
+          - { python: "3.12", polars: "polars==1.40.0" }
+          - { python: "3.12", polars: "polars>=1.40,<2" }
+          - { python: "3.12", polars: "polars==2.0.0" }
+          - { python: "3.13", polars: "polars>=2,<3" }
+          - { python: "3.14", polars: "polars>=1.40,<2" }
+          - { python: "3.14", polars: "polars>=2,<3" }
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -68,9 +64,7 @@ jobs:
         run: uv run --no-sync python -c "from importlib.metadata import version; from packaging.requirements import Requirement; r=Requirement('${{ matrix.polars }}'); v=version('polars'); assert v in r.specifier; print('Polars', v)"
       - name: Check types using ty
         run: uv run --no-sync ty check .
-      - name: Run tests with the selected engine
-        env:
-          POLARS_ENGINE_AFFINITY: ${{ matrix.engine }}
+      - name: Run tests with the in-memory engine
         run: uv run --no-sync pytest
 
   pytest-minimum-dependencies:
@@ -91,8 +85,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
       - name: Install the supported dependency floors
-        run: uv pip install numpy==2.0.0 polars==1.40.0 pyarrow==21.0.0 scipy==1.16.0 pymap3d==3.2.0
+        run: uv pip install numpy==2.0.0 polars==1.40.0 pyarrow==21.0.0 scipy==1.16.0
       - name: Verify installed versions
-        run: uv run --no-sync python -c "from importlib.metadata import version; expected={'numpy':'2.0.0','polars':'1.40.0','pyarrow':'21.0.0','scipy':'1.16.0','pymap3d':'3.2.0'}; actual={p:version(p) for p in expected}; assert actual == expected; print(actual)"
+        run: uv run --no-sync python -c "from importlib.metadata import version; expected={'numpy':'2.0.0','polars':'1.40.0','pyarrow':'21.0.0','scipy':'1.16.0'}; actual={p:version(p) for p in expected}; assert actual == expected; print(actual)"
       - name: Run tests
         run: uv run --no-sync pytest

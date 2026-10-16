@@ -1,4 +1,12 @@
-"""Compare streaming and in-memory RINEX/TEC execution in one benchmark run."""
+"""Compare streaming and in-memory RINEX/TEC execution in one benchmark run.
+
+Read decodes raw observations; read-and-TEC includes navigation and geometry;
+TEC-only uses resident observations and geometry. Sizes describe on-disk observation
+files, excluding navigation and bias files. RINEX 2 uses no DCB correction because
+the supplied CAS files lack matching C1/C2 biases; RINEX 3 uses external CAS DCBs.
+Engines run serially in alternating order, with result comparisons outside timing.
+TEC stages retain LLI for recorded loss-of-lock and half-cycle quality control.
+"""
 
 import argparse
 import hashlib
@@ -19,22 +27,22 @@ from polars.testing import assert_frame_equal
 
 import gnss_tec as gt
 import gnss_tec._core as core
-from gnss_tec.rinex import RinexObsHeader
+from gnss_tec.calculation.observation_geometry import _prepare_observations
+from gnss_tec.io.rinex import RinexObsHeader
 
 ROOT = Path(__file__).resolve().parents[1]
 Engine = Literal["streaming", "in-memory"]
 ENGINES: tuple[Engine, ...] = ("streaming", "in-memory")
 
 
-def read_observations(obs: list[Path], nav: list[Path], engine: Engine) -> pl.DataFrame:
-    return gt.read_rinex_obs(obs, nav)[1].collect(engine=engine)
+def read_observations(obs: list[Path], engine: Engine) -> pl.DataFrame:
+    return gt.read_rinex_obs(obs)[1].collect(engine=engine)
 
 
 def calculate(
     obs: list[Path], nav: list[Path], bias: list[Path] | None, engine: Engine
 ) -> pl.DataFrame:
-    header, lf = gt.read_rinex_obs(obs, nav)
-    return gt.calc_tec_from_df(lf, header, bias).collect(engine=engine)
+    return gt.calc_tec_from_rinex(obs, nav, bias).collect(engine=engine)
 
 
 def calculate_from_df(
@@ -83,6 +91,46 @@ def measure(
         "max_s": max(samples),
         "samples_s": samples,
     }, df
+
+
+def write_markdown(
+    output: Path,
+    metadata: dict[str, object],
+    runs: dict[Engine, list[dict[str, object]]],
+) -> None:
+    packages = metadata["packages"]
+    assert isinstance(packages, dict)
+    lines = [
+        "# Benchmark Results",
+        "",
+        "| Environment | Value |",
+        "| --- | --- |",
+        f"| Measured (UTC) | {metadata['timestamp_utc']} |",
+        f"| Platform | {metadata['platform']}; {metadata['cpu_cores']} logical cores |",
+        f"| Python / packages | Python {metadata['python']}; "
+        + "; ".join(f"{name} {value}" for name, value in sorted(packages.items()))
+        + " |",
+        f"| Polars threads / warm-up / repeats | {metadata['polars_threads']} / {metadata['warmup']} / {metadata['repeats']} |",
+        f"| Native SHA-256 | {metadata['native_core_sha256']} |",
+        f"| TEC cycle-slip policy | {metadata['tec_cycle_slip_mode']}; batch GF/MW, configured observation projection, LLI enabled |",
+        "",
+    ]
+    for engine in ENGINES:
+        lines.extend(
+            [
+                f"## {engine}",
+                "",
+                "| Task | Rows | Median (s) | Min–max (s) |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for run in runs[engine]:
+            lines.append(
+                f"| {run['name']} ({run['size_mib']:.2f} MiB) | {run['rows']} | {run['median_s']:.4f} | {run['min_s']:.4f}–{run['max_s']:.4f} |"
+            )
+        lines.append("")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(lines).rstrip() + "\n")
 
 
 def cases(
@@ -175,6 +223,7 @@ def main() -> None:
         "native_core_sha256": hashlib.sha256(
             Path(core.__file__).read_bytes()
         ).hexdigest(),
+        "tec_cycle_slip_mode": gt.TECConfig().cycle_slip_mode,
         "repeats": args.repeats,
         "warmup": args.warmup,
         "stages": args.stages,
@@ -185,13 +234,19 @@ def main() -> None:
         size_mib = sum(p.stat().st_size for p in obs) / 1024**2
         for stage_index, stage in enumerate(args.stages):
             if stage == "read":
-                operation = partial(read_observations, obs, nav)
+                operation = partial(read_observations, obs)
             elif stage == "read-and-TEC":
                 operation = partial(calculate, obs, nav, bias)
             else:
                 # Both engines calculate TEC from exactly the same resident data.
-                header, lf = gt.read_rinex_obs(obs, nav)
-                cached_df = lf.collect(engine="in-memory")
+                header, lf = gt.read_rinex_obs(obs, include_lli=True)
+                cached_df = (
+                    _prepare_observations(lf, header, pl.col("time"), nav)
+                    .select(
+                        *lf.collect_schema(), "azimuth", "elevation", "rx_lat", "rx_lon"
+                    )
+                    .collect(engine="in-memory")
+                )
                 operation = partial(calculate_from_df, cached_df, header, bias)
             # Alternate measurement order to avoid consistently favouring one engine.
             engine_order = (
@@ -223,37 +278,7 @@ def main() -> None:
             del reference, operation
             if stage == "TEC-only":
                 del cached_df, header, lf
-    packages = metadata["packages"]
-    lines = [
-        "# Benchmark Results",
-        "",
-        f"Python {metadata['python']}; {metadata['platform']}; {metadata['cpu_cores']} logical CPU cores.",
-        f"Dependencies: {json.dumps(packages, sort_keys=True)}.",
-        f"Polars threads: {metadata['polars_threads']}; warm-up runs per engine/task: {args.warmup}; measured runs per engine/task: {args.repeats}.",
-        f"Measured at {metadata['timestamp_utc']}; native extension SHA-256: {metadata['native_core_sha256']}.",
-        "",
-        "Read includes navigation parsing and satellite azimuth/elevation calculation. Read-and-TEC uses the same reader scope; TEC-only starts with observations already in memory.",
-        "RINEX 2 uses no DCB correction: the supplied CAS files do not contain matching C1/C2 biases. RINEX 3 uses external CAS DCBs. Empty outputs fail the benchmark.",
-        "Task sizes are the total on-disk observation file sizes, excluding navigation and bias files. For TEC-only, they refer to the source files rather than DataFrame memory usage.",
-        "Both engines run serially with alternating measurement order. Each task's final results are compared outside timing: identities, dtypes, null masks and numerical values (rel_tol=0, abs_tol=1e-8).",
-        "",
-    ]
-    for engine in ENGINES:
-        lines.extend(
-            [
-                f"## {engine}",
-                "",
-                "| Task | Rows | Median (s) | Min–max (s) |",
-                "| --- | ---: | ---: | ---: |",
-            ]
-        )
-        for run in runs[engine]:
-            lines.append(
-                f"| {run['name']} ({run['size_mib']:.2f} MiB) | {run['rows']} | {run['median_s']:.4f} | {run['min_s']:.4f}–{run['max_s']:.4f} |"
-            )
-        lines.append("")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("\n".join(lines) + "\n")
+    write_markdown(args.output, metadata, runs)
     if args.json_output is not None:
         args.json_output.parent.mkdir(parents=True, exist_ok=True)
         args.json_output.write_text(

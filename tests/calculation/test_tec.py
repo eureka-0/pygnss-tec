@@ -1,0 +1,256 @@
+import math
+from typing import cast
+
+import numpy as np
+import polars as pl
+import pytest
+from polars.testing import assert_frame_equal
+
+import gnss_tec as gt
+from tests.support.assertions import (
+    assert_has_columns,
+    assert_prns_start_with,
+    assert_valid_tec_frame,
+)
+from tests.support.slip_reference import offsets
+
+
+def _median(df: pl.DataFrame, column: str) -> float:
+    return cast(float, df.get_column(column).median())
+
+
+def _assert_corrected_relationship(df: pl.DataFrame) -> None:
+    max_abs_error = df.select(
+        (pl.col("stec_dcb_corrected") / pl.col("mf") - pl.col("vtec")).abs().max()
+    ).item()
+    assert max_abs_error < 1e-10
+
+
+@pytest.fixture(scope="module")
+def full_day_observations(rinex_obs_v3):
+    """Share code, phase and SNR across the whole-day estimation methods."""
+    header, lf = gt.read_rinex_obs(
+        rinex_obs_v3, constellations="CG", codes="[CLS].*", include_lli=True
+    )
+    return header, lf.collect(engine="in-memory")
+
+
+def test_complete_cibg_final_products(rinex_obs_v3_hatanaka, rinex_nav_v3, bias):
+    # Full-day RINEX/CRINEX equality is checked at the reader boundary.
+    # Run the complete TEC workload once, including final-product continuity.
+    config = gt.TECConfig(
+        retain_diagnostics=[
+            "mf",
+            "slip_status",
+            "slip_stec_correction",
+            "stec_p_corrected",
+        ]
+    )
+    df = gt.calc_tec_from_rinex(
+        rinex_obs_v3_hatanaka, rinex_nav_v3, bias, config
+    ).collect(engine="in-memory")
+    assert df.height == 50315
+    assert set(df["prn"].cast(pl.String).str.slice(0, 1)) == {"C", "G"}
+    assert {"qc_valid", "qc_reason", "calibration_status"}.isdisjoint(df.columns)
+    assert {"source_file", "receiver_id"}.isdisjoint(df.columns)
+    assert_valid_tec_frame(df)
+    assert 35 < _median(df, "vtec") < 50
+    assert -50 < _median(df, "stec") < -25
+    _assert_corrected_relationship(df)
+
+    event_count = 0
+    for group in df.partition_by("station", "prn"):
+        times = group["time"].cast(pl.Int64).to_numpy().astype(float) / 1e9
+        events = group["slip_stec_correction"].is_not_null().to_numpy()
+        event_count += int(events.sum())
+        for name in ("stec", "stec_dcb_corrected", "stec_p_corrected"):
+            mask = events
+            if name == "stec_p_corrected":
+                mask = (
+                    group["slip_status"]
+                    .is_in(["phase_repaired", "phase_continuous"])
+                    .to_numpy()
+                )
+            residual = offsets(times, group[name].to_numpy(), mask)
+            error = float(np.max(np.abs(residual[mask]), initial=0))
+            assert error < 1e-6, (group["prn"][0], name, error)
+    assert event_count > 0
+    assert df.filter(pl.col("prn") == "C38")["C1_code"].n_unique() > 1
+
+
+def test_calc_tec_from_df_matches_rinex(short_rinex_v3, rinex_nav_v3, bias):
+    header, lf = gt.read_rinex_obs(short_rinex_v3, constellations="G", include_lli=True)
+    config = gt.TECConfig(constellations="G", retain_diagnostics=["mf"])
+    from_df = gt.calc_tec_from_df(
+        lf, header, bias, config, nav_fn=rinex_nav_v3
+    ).collect(engine="in-memory")
+    from_rinex = gt.calc_tec_from_rinex(
+        short_rinex_v3, rinex_nav_v3, bias, config
+    ).collect(engine="in-memory")
+    assert isinstance(from_df, pl.DataFrame)
+    assert isinstance(from_rinex, pl.DataFrame)
+
+    assert_frame_equal(from_df, from_rinex, check_exact=False, rel_tol=0, abs_tol=1e-8)
+    assert_valid_tec_frame(from_df)
+
+
+def test_calc_tec_from_df_rejects_non_utc_timezone(small_observations, rinex_nav_v3):
+    header, observations = small_observations
+    observations = observations.with_columns(
+        pl.col("time").dt.convert_time_zone("Asia/Shanghai")
+    )
+
+    with pytest.raises(ValueError, match="UTC timezone or be timezone-naive"):
+        gt.calc_tec_from_df(observations, header, nav_fn=rinex_nav_v3).collect(
+            engine="in-memory"
+        )
+
+
+def test_calc_tec_from_df_requires_navigation_for_raw_observations(small_observations):
+    header, observations = small_observations
+
+    with pytest.raises(ValueError, match="azimuth, elevation"):
+        gt.calc_tec_from_df(observations, header).collect(engine="in-memory")
+
+
+def test_calc_tec_from_parquet_rejects_missing_metadata(
+    tmp_path, small_observations, rinex_nav_v3
+):
+    _, observations = small_observations
+    parquet_fn = tmp_path / "missing_metadata.parquet"
+    observations.write_parquet(parquet_fn)
+
+    with pytest.raises(ValueError, match="Parquet metadata is missing"):
+        gt.calc_tec_from_parquet(parquet_fn, nav_fn=rinex_nav_v3).collect(
+            engine="in-memory"
+        )
+
+
+def test_calc_tec_v2_without_bias_includes_recovered_observations(
+    rinex_obs_v2, rinex_nav_v2
+):
+    df = gt.calc_tec_from_rinex(
+        rinex_obs_v2, rinex_nav_v2, config=gt.TECConfig(rx_bias=None)
+    ).collect(engine="in-memory")
+
+    assert_valid_tec_frame(df, corrected=False)
+    # rinex 0.22 skipped satellite records and produced only 9,166 TEC rows.
+    assert df.height == 10933
+
+
+@pytest.mark.parametrize("method", ["mstd", "lsq"])
+def test_estimated_receiver_bias_methods(
+    full_day_observations, bias, method, rinex_nav_v3
+):
+    header, observations = full_day_observations
+    # Real data include missing epochs; require whole-day span rather than no gaps.
+    observed_seconds = observations.select(
+        (pl.col("time").max() - pl.col("time").min()).dt.total_seconds()
+    ).item()
+    assert observed_seconds > 23 * 3600
+    df = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(rx_bias=method, retain_diagnostics=["mf", "rx_bias"]),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    assert isinstance(df, pl.DataFrame)
+
+    assert_valid_tec_frame(df)
+    assert_has_columns(df, ["mf", "rx_bias"])
+    assert df.get_column("rx_bias").drop_nulls().len() > 0
+    assert set(df["prn"].cast(pl.String).str.slice(0, 1)) == {"C", "G"}
+    assert math.isfinite(_median(df, "vtec"))
+    _assert_corrected_relationship(df)
+
+
+def test_mapping_function_choice_changes_vtec(small_observations, bias, rinex_nav_v3):
+    header, observations = small_observations
+    slm = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(mapping_function="slm", retain_diagnostics=["mf"]),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    mslm = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(mapping_function="mslm", retain_diagnostics=["mf"]),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    assert isinstance(slm, pl.DataFrame)
+    assert isinstance(mslm, pl.DataFrame)
+
+    assert slm.height == mslm.height
+    assert _median(mslm, "vtec") > _median(slm, "vtec")
+    assert not slm.get_column("mf").equals(mslm.get_column("mf"))
+
+
+def test_constellation_filter_limits_tec_output(small_observations, bias, rinex_nav_v3):
+    header, observations = small_observations
+    df = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(constellations="C"),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    assert isinstance(df, pl.DataFrame)
+
+    assert_valid_tec_frame(df)
+    assert_prns_start_with(df, "C")
+
+
+def test_min_elevation_filters_tec_output(small_observations, bias, rinex_nav_v3):
+    header, observations = small_observations
+    baseline = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(retain_diagnostics=["elevation"]),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    high_elevation = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(min_elevation=60, retain_diagnostics=["elevation"]),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    assert isinstance(baseline, pl.DataFrame)
+    assert isinstance(high_elevation, pl.DataFrame)
+
+    assert high_elevation.height < baseline.height
+    assert cast(float, high_elevation.get_column("elevation").min()) >= 60
+
+
+def test_missing_external_receiver_bias_can_be_kept_uncorrected(
+    small_observations, bias, rinex_nav_v3
+):
+    header, observations = small_observations
+    observations = observations.with_columns(pl.lit("TEST").alias("station"))
+    dropped = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(retain_diagnostics=["rx_bias"]),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    kept = gt.calc_tec_from_df(
+        observations,
+        header,
+        bias,
+        gt.TECConfig(
+            missing_bias="keep_uncorrected", retain_diagnostics=["rx_bias", "tx_bias"]
+        ),
+        nav_fn=rinex_nav_v3,
+    ).collect(engine="in-memory")
+    assert isinstance(dropped, pl.DataFrame)
+    assert isinstance(kept, pl.DataFrame)
+
+    assert dropped.height == 0
+    assert kept.height > 0
+    assert kept.get_column("rx_bias").null_count() == kept.height
