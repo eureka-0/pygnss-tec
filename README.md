@@ -50,7 +50,7 @@ cd pygnss-tec
 uv run --with maturin maturin build --release
 ```
 
-The built wheel is available in `target/wheels/`. See the [development guide](docs/development.md) for installation and development checks.
+The built wheel is available in `target/wheels/`.
 
 ## Usage
 
@@ -132,8 +132,6 @@ See [benchmark results](benchmarks/benchmark.md) for RINEX reading and TEC calcu
 ## Documentation
 
 - [Usage and configuration](docs/usage.md)
-- [TEC processing and cycle-slip correction](docs/cycle-slips.md)
-- [Development and Rust module layout](docs/development.md)
 - [Roadmap](ROADMAP.md)
 - [Changelog](CHANGELOG.md)
 
@@ -141,7 +139,7 @@ See [benchmark results](benchmarks/benchmark.md) for RINEX reading and TEC calcu
 
 Bug reports and reproducible examples are welcome through [GitHub issues](https://github.com/Eureka-0/pygnss-tec/issues).
 Pull requests are welcome for bug fixes, new features, and documentation improvements.
-See the [development guide](docs/development.md) for build and test commands.
+See the [justfile](justfile) for build and test commands.
 
 ## License
 
