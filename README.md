@@ -18,6 +18,7 @@ The package provides tools for RINEX file reading, TEC calculation, and DCB corr
 
 - **High-Performance**: Efficiently read GNSS RINEX files using [rinex crate](https://crates.io/crates/rinex), calculate and calibrate TEC from dual-frequency GNSS observations using Rust and [polars](https://pola.rs/) lazy evaluation (see [benchmarks](https://github.com/eureka-0/pygnss-tec/blob/main/benchmarks/benchmark.md)).
 - **Multiple File Formats**: Support for RINEX versions 2.x and 3.x, as well as Hatanaka compressed files (e.g., .rnx, .crx, .crx.gz).
+- **Automatic Code Selection**: Select dual-frequency code and carrier-phase pairs based on observation quality, DCB coverage, and configurable priorities, with per-epoch fallback when preferred signals are unavailable.
 - **Multi-GNSS Support**: Process observations from multiple GNSS constellations (see [Overview](#overview) for constellation support).
 - **Open-Source**: Fully open-source under the MIT License, encouraging community contributions and collaboration.
 
