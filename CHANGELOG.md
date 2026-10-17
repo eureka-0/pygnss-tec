@@ -6,8 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add `read_rinex_nav` and read-only `NavigationData` for reusing native broadcast ephemerides and satellite indexes.
+- Add `compute_az_el` for independent azimuth/elevation calculation on wide or long observations, preserving row order and input times.
+
 ### Changed
 
+- Rename `calc_tec_from_df`, `calc_tec_from_parquet` and `calc_tec_from_rinex` to `compute_tec`, `compute_tec_from_parquet` and `compute_tec_from_rinex`, without compatibility aliases.
+- Pass navigation query columns through Arrow rather than Python time/PRN lists, retaining the existing propagation and angle kernels.
+- Keep receiver coordinates before azimuth/elevation in TEC output for both precomputed-angle and RINEX navigation workflows.
 - Remove the `custom-alloc` feature; the default allocator is now used for all builds, and the `custom-alloc` feature is no longer available.
 - Default `TECConfig.cycle_slip_mode` to `'repair'`: batch GF/MW detection with continuous offsets accepted solely by final STEC temporal continuity.
   Every localized edge is aligned without code/noise/integer vetoes.
@@ -28,7 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   Remove `gnss_tec.tec.*` and `gnss_tec.rinex.*` import paths without compatibility aliases.
 - Add keyword-only `read_rinex_obs(..., include_lli=False)`: default wide/long outputs omit LLI and native LLI buffers.
   Opt in for raw UInt8/null indicators; observations, epoch flags and retained event metadata are unchanged.
-  `calc_tec_from_rinex` explicitly opts in for QC.
+  `compute_tec_from_rinex` explicitly opts in for QC.
   DataFrame/Parquet callers should retain LLI when recorded lock/half-cycle information is required.
 - Rename `TECConfig.retain_intermediate` to `retain_diagnostics` without an alias.
   Use None, a list/tuple of supported diagnostic names, or 'all'.

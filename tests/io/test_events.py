@@ -121,7 +121,7 @@ def test_receiver_positions_survive_gps_parquet_roundtrip(tmp_path):
     ).collect(engine="in-memory")
     path = tmp_path / "receiver-positions.parquet"
     observations.write_parquet(path, metadata=header.to_metadata())
-    result = gt.calc_tec_from_parquet(
+    result = gt.compute_tec_from_parquet(
         path, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
     ).collect(engine="in-memory")
     np.testing.assert_allclose(result["rx_lat"], np.zeros(8), rtol=0, atol=1e-12)

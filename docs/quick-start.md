@@ -44,6 +44,9 @@ header, lf = gt.read_rinex_obs(
 df = lf.collect(engine="in-memory")
 ```
 
+To calculate angles separately, load navigation with `read_rinex_nav` and call `compute_az_el(observations, header, navigation)`.
+See [the separate-angle workflow](guide/tec-calculation.md#calculate-angles-separately) for preparing observations with LLI and passing them to `compute_tec`.
+
 You can save the DataFrame to a Parquet file for later use:
 
 ```python
@@ -74,7 +77,7 @@ Obtain calibrated TEC from RINEX observation, navigation and optional bias files
 ```python
 import gnss_tec as gt
 
-tec_lf = gt.calc_tec_from_rinex(
+tec_lf = gt.compute_tec_from_rinex(
     "data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
     "data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz",
     "data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz",

@@ -12,6 +12,8 @@ The package provides tools for RINEX file reading, TEC calculation, and DCB corr
 
 > **Warning**: This package is under active development and may undergo significant changes. It is not recommended for production use until it reaches a stable release (v1.0.0).
 
+> **Note**: All code in this repository is tested using standard IGS GNSS data files downloaded from the **Crustal Dynamics Data Information System (CDDIS) database**. If you encounter problems with GNSS data files downloaded from other databases, please open a [bug report issue](https://github.com/Eureka-0/pygnss-tec/issues) and attach the data files to the issue.
+
 ## Features
 
 - **High-Performance**: Efficiently read GNSS RINEX files using [rinex crate](https://crates.io/crates/rinex), calculate and calibrate TEC from dual-frequency GNSS observations using Rust and [polars](https://pola.rs/) lazy evaluation (see [benchmarks](https://github.com/eureka-0/pygnss-tec/blob/main/benchmarks/benchmark.md)).
@@ -86,12 +88,29 @@ df = lf.collect(engine="in-memory")
 
 You can read multiple files from the same station by passing a list of file paths.
 
+Read navigation once and reuse it when calculating satellite azimuth and elevation:
+
+```python
+header, observations = gt.read_rinex_obs(
+    "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
+    include_lli=True,
+)
+navigation = gt.read_rinex_nav(
+    "./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz"
+)
+observations_with_angles = gt.compute_az_el(
+    observations, header, navigation
+).collect(engine="in-memory")
+```
+
+Navigation records remain in Rust memory, and `compute_az_el` appends `azimuth` and `elevation` in degrees without filtering observations.
+
 ### TEC calculation
 
 Directly calculate TEC from RINEX observation and navigation files. An optional DCB file supplies satellite and receiver bias corrections:
 
 ```python
-tec_lf = gt.calc_tec_from_rinex(
+tec_lf = gt.compute_tec_from_rinex(
     "./data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz",
     "./data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz",
     "./data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz",
@@ -114,7 +133,7 @@ config = gt.TECConfig(
     min_elevation=30.0,
     min_snr=30.0,
 )
-tec_lf = gt.calc_tec_from_rinex(
+tec_lf = gt.compute_tec_from_rinex(
     "observations.crx.gz",
     "navigation.rnx.gz",
     config=config,
@@ -122,7 +141,8 @@ tec_lf = gt.calc_tec_from_rinex(
 ```
 
 Calculation from existing DataFrames, LazyFrames and saved Parquet observations is also supported.
-See the [TEC calculation guide](https://eureka-0.github.io/pygnss-tec/guide/tec-calculation/) for those examples.
+Use `compute_tec(observations_with_angles, header)` to calculate TEC from observations with precomputed angles.
+See the [TEC calculation guide](https://eureka-0.github.io/pygnss-tec/guide/tec-calculation/) for more examples.
 
 ## Documentation
 

@@ -61,7 +61,7 @@ def _calculate(
     *,
     cycle_slip_mode: Literal["basic", "detect", "repair"] = "repair",
 ) -> pl.DataFrame:
-    return gt.calc_tec_from_df(
+    return gt.compute_tec(
         df,
         header,
         config=gt.TECConfig(
@@ -159,7 +159,7 @@ def test_empty_and_zero_weight_arcs(observations):
     header, raw = observations
     assert _calculate(raw.head(0), header).is_empty()
     zero = raw.with_columns(pl.lit(0.0, dtype=pl.Float32).alias("elevation"))
-    result = gt.calc_tec_from_df(
+    result = gt.compute_tec(
         zero, header, config=gt.TECConfig(min_elevation=0, retain_diagnostics="all")
     ).collect(engine="in-memory")
     assert "offset" not in result.columns
@@ -308,10 +308,10 @@ def test_receiver_bias_high_rate_order(
         rx_bias=method, missing_bias="keep_uncorrected", retain_diagnostics="all"
     )
     header = replace(header, sampling_interval=cadence)
-    expected = gt.calc_tec_from_df(raw, header, Path("unused"), config).collect(
+    expected = gt.compute_tec(raw, header, Path("unused"), config).collect(
         engine="in-memory"
     )
-    actual = gt.calc_tec_from_df(
+    actual = gt.compute_tec(
         raw.sample(fraction=1, shuffle=True, seed=6), header, Path("unused"), config
     ).collect(engine="in-memory")
     assert_frame_equal(actual, expected, check_exact=False, rel_tol=0, abs_tol=1e-8)
@@ -324,16 +324,16 @@ def test_missing_band_bias_diagnostics(observations, bias, policy):
     config = gt.TECConfig(rx_bias=None, missing_bias=policy)
     if policy == "error":
         with pytest.raises(ValueError, match="missing required bias columns"):
-            gt.calc_tec_from_df(missing, header, bias, config)
+            gt.compute_tec(missing, header, bias, config)
     elif policy == "warn":
         with pytest.warns(UserWarning, match="missing required bias columns"):
-            result = gt.calc_tec_from_df(missing, header, bias, config).collect(
+            result = gt.compute_tec(missing, header, bias, config).collect(
                 engine="in-memory"
             )
         assert result.is_empty()
     else:
         assert (
-            gt.calc_tec_from_df(missing, header, bias, config)
+            gt.compute_tec(missing, header, bias, config)
             .collect(engine="in-memory")
             .is_empty()
         )

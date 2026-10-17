@@ -18,12 +18,12 @@ import sys
 from gnss_tec import _core
 for suffix in (".rnx", ".rnx.gz"):
     path = sys.argv[1] + suffix
-    for entry in ("_read_obs", "_satellite_positions"):
+    for entry in ("_read_obs", "_read_nav"):
         try:
             if entry == "_read_obs":
                 _core._read_obs([path], None, None, True)
             else:
-                _core._satellite_positions([path], [], [])
+                _core._read_nav([path], None)
         except OSError:
             pass
         else:

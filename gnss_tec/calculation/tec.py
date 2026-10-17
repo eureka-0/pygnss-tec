@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -13,12 +12,13 @@ from ..calibration.receiver_bias import estimate_rx_bias
 from ..configuration import DIAGNOSTIC_COLUMNS, TECConfig
 from ..constants import c
 from ..io.bias_sinex import read_bias
-from ..io.rinex import RinexObsHeader, get_leap_seconds, read_rinex_obs
+from ..io.rinex import RinexObsHeader, read_rinex_obs
 from ..signals.arcs import add_slip_arcs, align_stec
 from ..signals.definitions import CODE_FREQUENCIES
 from ..signals.selection import coalesce_observations as _coalesce_observations
 from .mapping_functions import modified_single_layer_model, single_layer_model
 from .observation_geometry import _prepare_observations
+from .observation_time import _infer_time_kind, _leap_seconds_duration
 
 INTERNAL_COLUMNS = frozenset(
     {
@@ -41,31 +41,6 @@ def _require_columns(lf: pl.LazyFrame, columns: Iterable[str], context: str) -> 
         raise ValueError(
             f"{context} requires columns that are missing: {', '.join(missing)}."
         )
-
-
-def _infer_time_kind(lf: pl.LazyFrame) -> Literal["utc", "gps"]:
-    dtype = lf.collect_schema()["time"]
-    if not isinstance(dtype, pl.Datetime):
-        raise TypeError(
-            "Input time column must be a Polars Datetime. Use timezone-aware UTC "
-            "datetime values for UTC or naive datetime values for GPS time."
-        )
-
-    if dtype.time_zone == "UTC":
-        return "utc"
-    elif dtype.time_zone is None:
-        return "gps"
-    else:
-        raise ValueError(
-            "Input time column must use the UTC timezone or be timezone-naive "
-            f"GPS time, got timezone {dtype.time_zone!r}."
-        )
-
-
-def _leap_seconds_duration(header: RinexObsHeader) -> pl.Expr:
-    if header.leap_seconds is not None:
-        return pl.duration(seconds=header.leap_seconds, time_unit="ns")
-    return get_leap_seconds("time")
 
 
 def _map_frequencies(lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -102,7 +77,7 @@ def _correct_cycle_slip(
     return stec_p.copy()
 
 
-def calc_tec_from_df(
+def compute_tec(
     df: pl.DataFrame | pl.LazyFrame,
     header: RinexObsHeader,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
@@ -154,12 +129,12 @@ def calc_tec_from_df(
     keep_all = config.retain_diagnostics == "all"
     retained = set() if keep_all else set(config.retain_diagnostics or ())
     input_lf = df.lazy()
-    _require_columns(input_lf, ["time", "station", "prn"], "calc_tec_from_df")
+    _require_columns(input_lf, ["time", "station", "prn"], "compute_tec")
     input_schema = input_lf.collect_schema()
     if "code" in input_schema and "value" in input_schema:
         raise ValueError("TEC calculations require wide observations; use pivot=True.")
     if nav_fn is None:
-        _require_columns(input_lf, ["azimuth", "elevation"], "calc_tec_from_df")
+        _require_columns(input_lf, ["azimuth", "elevation"], "compute_tec")
     # RINEX geometry is already Float64. Normalize external DataFrame/Parquet
     # inputs once so all later trigonometry and weighting use the same precision.
     geometry_casts = [
@@ -580,7 +555,7 @@ def calc_tec_from_df(
     )
 
 
-def calc_tec_from_parquet(
+def compute_tec_from_parquet(
     parquet_fn: str | Path,
     bias_fn: str | Path | Iterable[str | Path] | None = None,
     config: TECConfig | None = None,
@@ -606,19 +581,19 @@ def calc_tec_from_parquet(
     -------
     polars.LazyFrame
         TEC in TECU and geometry in degrees with UTC epochs. Column/row
-        selection follows calc_tec_from_df and retain_diagnostics.
+        selection follows compute_tec and retain_diagnostics.
 
     Raises
     ------
     ValueError
         If required RINEX metadata are missing or observation/bias
-        constraints in calc_tec_from_df are violated.
+        constraints in compute_tec are violated.
     """
     lf = pl.scan_parquet(parquet_fn)
     metadata = pl.read_parquet_metadata(parquet_fn)
     header = RinexObsHeader.from_metadata(metadata)
 
-    return calc_tec_from_df(lf, header, bias_fn, config, nav_fn=nav_fn)
+    return compute_tec(lf, header, bias_fn, config, nav_fn=nav_fn)
 
 
 def _tec_observation_codes(config: TECConfig) -> list[str]:
@@ -639,7 +614,7 @@ def _tec_observation_codes(config: TECConfig) -> list[str]:
     )
 
 
-def calc_tec_from_rinex(
+def compute_tec_from_rinex(
     obs_fn: str | Path | Iterable[str | Path],
     nav_fn: str | Path | Iterable[str | Path],
     bias_fn: str | Path | Iterable[str | Path] | None = None,
@@ -667,7 +642,7 @@ def calc_tec_from_rinex(
     -------
     polars.LazyFrame
         TEC in TECU and geometry in degrees with UTC epochs. Column/row
-        selection follows calc_tec_from_df and retain_diagnostics; LLI
+        selection follows compute_tec and retain_diagnostics; LLI
         still contributes to QC when omitted from the final output.
 
     Raises
@@ -687,4 +662,4 @@ def calc_tec_from_rinex(
         include_lli=True,
     )
 
-    return calc_tec_from_df(lf, header, bias_fn, config, nav_fn=nav_fn)
+    return compute_tec(lf, header, bias_fn, config, nav_fn=nav_fn)

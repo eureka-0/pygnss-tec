@@ -1,1 +1,1 @@
-"""File readers for observations and external bias products."""
+"""File readers for observations, broadcast navigation and external bias products."""

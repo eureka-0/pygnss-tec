@@ -2,7 +2,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use arrow::{
-    array::{ArrayRef, Float64Array, Int64Array, LargeStringArray, RecordBatch},
+    array::{Array, ArrayRef, Float64Array, Int64Array, LargeStringArray, RecordBatch},
     datatypes::{DataType, Field, Schema},
 };
 use pyo3::{PyResult, exceptions::PyValueError};
@@ -116,57 +116,158 @@ fn nearest_record(records: &[NavigationRecord], utc: Duration) -> Option<&Naviga
     }
 }
 
-pub(crate) fn record_batch(
-    paths: &[String],
-    times: Vec<i64>,
-    prns: Vec<String>,
-) -> PyResult<RecordBatch> {
-    let navigation = rinex_io::read_files(paths)?;
+pub(crate) fn record_batch(paths: Vec<String>, input: RecordBatch) -> PyResult<RecordBatch> {
+    let satellites = query_satellites(&input)?;
+    let selected = satellites.iter().copied().collect();
+    let store = NavigationStore::load(paths, None, Some(&selected))?;
+    store.positions(input, &satellites)
+}
+
+/// Owned, immutable propagation records. The decoded RINEX is dropped after indexing.
+pub(crate) struct NavigationStore {
+    records: FxHashMap<SV, Vec<NavigationRecord>>,
+    pub(crate) sources: Vec<String>,
+    pub(crate) satellites: Vec<String>,
+    pub(crate) constellations: String,
+    pub(crate) n_ephemerides: usize,
+    pub(crate) epoch_range: Option<(i64, i64)>,
+}
+
+impl NavigationStore {
+    pub(crate) fn load(
+        mut paths: Vec<String>,
+        constellations: Option<&str>,
+        selected: Option<&FxHashSet<SV>>,
+    ) -> PyResult<Self> {
+        paths.sort();
+        let navigation = rinex_io::read_files(&paths)?;
+        if navigation.header.nav.is_none() {
+            return Err(PyValueError::new_err("Expected a RINEX navigation file"));
+        }
+        if !(2..=3).contains(&navigation.header.version.major) {
+            return Err(PyValueError::new_err(
+                "Navigation reading supports RINEX 2/3",
+            ));
+        }
+        let mut satellites = selected.cloned().unwrap_or_else(|| {
+            navigation
+                .nav_ephemeris_frames_iter()
+                .map(|(key, _)| key.sv)
+                .collect()
+        });
+        if let Some(codes) = constellations {
+            satellites.retain(|sv| codes.contains(&format!("{:x}", sv.constellation)));
+        }
+        let records = index_records(&navigation, &satellites);
+        drop(navigation);
+        let mut satellites: Vec<_> = records.keys().map(|sv| format!("{sv:x}")).collect();
+        satellites.sort();
+        let mut codes: Vec<_> = satellites
+            .iter()
+            .map(|name| name.as_bytes()[0] as char)
+            .collect();
+        codes.sort();
+        codes.dedup();
+        let mut epoch_range: Option<(i64, i64)> = None;
+        let mut n_ephemerides = 0;
+        for satellite_records in records.values() {
+            n_ephemerides += satellite_records.len();
+            // The per-SV index is sorted: only its endpoints can extend the range.
+            for record in [satellite_records.first(), satellite_records.last()]
+                .into_iter()
+                .flatten()
+            {
+                let time = crate::io::quality::unix_ns(record.epoch)?;
+                epoch_range = Some(match epoch_range {
+                    Some((start, end)) => (start.min(time), end.max(time)),
+                    None => (time, time),
+                });
+            }
+        }
+        Ok(Self {
+            records,
+            sources: paths,
+            satellites,
+            constellations: codes.into_iter().collect(),
+            n_ephemerides,
+            epoch_range,
+        })
+    }
+
+    pub(crate) fn record_batch(&self, input: RecordBatch) -> PyResult<RecordBatch> {
+        let satellites = query_satellites(&input)?;
+        self.positions(input, &satellites)
+    }
+
+    fn positions(&self, input: RecordBatch, satellites: &[SV]) -> PyResult<RecordBatch> {
+        let (times, _) = query_arrays(&input)?;
+        let (xs, (ys, zs)): (Vec<_>, (Vec<_>, Vec<_>)) = times
+            .values()
+            .par_iter()
+            .zip(satellites.par_iter())
+            .map(|(&time, &satellite)| {
+                let epoch =
+                    Epoch::from_unix_duration(Duration::from_total_nanoseconds(time as i128));
+                let position = self
+                    .records
+                    .get(&satellite)
+                    .and_then(|records| nearest_record(records, epoch.duration))
+                    .and_then(|record| record.position(satellite, epoch));
+                let [x, y, z] = position.unwrap_or([f64::NAN; 3]);
+                (x, (y, z))
+            })
+            .unzip();
+        let fields = vec![
+            Field::new("_utc_ns", DataType::Int64, false),
+            Field::new("prn", DataType::LargeUtf8, false),
+            Field::new("_sat_x", DataType::Float64, false),
+            Field::new("_sat_y", DataType::Float64, false),
+            Field::new("_sat_z", DataType::Float64, false),
+        ];
+        let arrays: Vec<ArrayRef> = vec![
+            input.column_by_name("_utc_ns").unwrap().clone(),
+            input.column_by_name("prn").unwrap().clone(),
+            Arc::new(Float64Array::from(xs)),
+            Arc::new(Float64Array::from(ys)),
+            Arc::new(Float64Array::from(zs)),
+        ];
+        RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+}
+
+fn query_arrays(input: &RecordBatch) -> PyResult<(&Int64Array, &LargeStringArray)> {
+    let times = input
+        .column_by_name("_utc_ns")
+        .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+        .ok_or_else(|| PyValueError::new_err("Navigation queries require Int64 _utc_ns"))?;
+    let prns = input
+        .column_by_name("prn")
+        .and_then(|column| column.as_any().downcast_ref::<LargeStringArray>())
+        .ok_or_else(|| PyValueError::new_err("Navigation queries require LargeUtf8 prn"))?;
+    if times.null_count() != 0 || prns.null_count() != 0 {
+        return Err(PyValueError::new_err(
+            "Navigation query times and PRNs must not be null",
+        ));
+    }
+    Ok((times, prns))
+}
+
+fn query_satellites(input: &RecordBatch) -> PyResult<Vec<SV>> {
+    let (_, prns) = query_arrays(input)?;
     let mut satellite_names = FxHashMap::default();
-    let satellites = prns
-        .iter()
+    prns.iter()
         .map(|prn| {
-            if let Some(satellite) = satellite_names.get(prn.as_str()) {
+            let prn = prn.expect("validated non-null PRN");
+            if let Some(satellite) = satellite_names.get(prn) {
                 return Ok(*satellite);
             }
             let satellite =
                 SV::from_str(prn).map_err(|error| PyValueError::new_err(error.to_string()))?;
-            satellite_names.insert(prn.as_str(), satellite);
+            satellite_names.insert(prn, satellite);
             Ok(satellite)
         })
-        .collect::<PyResult<Vec<_>>>()?;
-    let selected = satellites.iter().copied().collect();
-    let records = index_records(&navigation, &selected);
-    drop(navigation);
-    let (xs, (ys, zs)): (Vec<_>, (Vec<_>, Vec<_>)) = times
-        .par_iter()
-        .zip(satellites.par_iter())
-        .map(|(&time, &satellite)| {
-            let epoch = Epoch::from_unix_duration(Duration::from_total_nanoseconds(time as i128));
-            let position = records
-                .get(&satellite)
-                .and_then(|records| nearest_record(records, epoch.duration))
-                .and_then(|record| record.position(satellite, epoch));
-            let [x, y, z] = position.unwrap_or([f64::NAN; 3]);
-            (x, (y, z))
-        })
-        .unzip();
-    let fields = vec![
-        Field::new("_utc_ns", DataType::Int64, false),
-        Field::new("prn", DataType::LargeUtf8, false),
-        Field::new("_sat_x", DataType::Float64, false),
-        Field::new("_sat_y", DataType::Float64, false),
-        Field::new("_sat_z", DataType::Float64, false),
-    ];
-    let arrays: Vec<ArrayRef> = vec![
-        Arc::new(Int64Array::from(times)),
-        Arc::new(LargeStringArray::from(prns)),
-        Arc::new(Float64Array::from(xs)),
-        Arc::new(Float64Array::from(ys)),
-        Arc::new(Float64Array::from(zs)),
-    ];
-    RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)
-        .map_err(|error| PyValueError::new_err(error.to_string()))
+        .collect()
 }
 
 #[cfg(test)]

@@ -68,7 +68,7 @@ def test_external_satellite_and_receiver_biases_are_not_subtracted_twice(monkeyp
     monkeypatch.setattr(
         tc, "read_bias", lambda _: pl.concat([satellite, receiver]).lazy()
     )
-    result = gt.calc_tec_from_df(
+    result = gt.compute_tec(
         obs, h, "unused", TECConfig(retain_diagnostics="all")
     ).collect(engine="in-memory")
     np.testing.assert_allclose(result["stec"], 35.0, rtol=0, atol=1e-6)
@@ -191,7 +191,7 @@ def test_receiver_estimation_recovers_independent_known_bias(monkeypatch, method
         ]
     )
     monkeypatch.setattr(tc, "read_bias", lambda _: product.lazy())
-    result = gt.calc_tec_from_df(
+    result = gt.compute_tec(
         pl.concat(observations),
         h,
         "unused",
@@ -246,7 +246,7 @@ def test_failed_receiver_estimation_is_not_a_zero_correction(monkeypatch):
     h, obs = physical_observations(np.full(6, 30.0))
     product = bias_rows([datetime(2024, 1, 10)], [datetime(2024, 1, 11)], [0.0])
     monkeypatch.setattr(tc, "read_bias", lambda _: product.lazy())
-    result = gt.calc_tec_from_df(
+    result = gt.compute_tec(
         obs, h, "unused", TECConfig(rx_bias="mstd", retain_diagnostics="all")
     ).collect(engine="in-memory")
     assert result["rx_bias"].null_count() == result.height

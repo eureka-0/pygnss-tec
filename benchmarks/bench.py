@@ -42,7 +42,7 @@ def read_observations(obs: list[Path], engine: Engine) -> pl.DataFrame:
 def calculate(
     obs: list[Path], nav: list[Path], bias: list[Path] | None, engine: Engine
 ) -> pl.DataFrame:
-    return gt.calc_tec_from_rinex(obs, nav, bias).collect(engine=engine)
+    return gt.compute_tec_from_rinex(obs, nav, bias).collect(engine=engine)
 
 
 def calculate_from_df(
@@ -51,7 +51,7 @@ def calculate_from_df(
     bias: list[Path] | None,
     engine: Engine,
 ) -> pl.DataFrame:
-    return gt.calc_tec_from_df(observations, header, bias).collect(engine=engine)
+    return gt.compute_tec(observations, header, bias).collect(engine=engine)
 
 
 def logical(df: pl.DataFrame) -> pl.DataFrame:

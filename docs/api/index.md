@@ -6,8 +6,9 @@ Private modules and native bindings are implementation details.
 
 | Page | Public objects |
 |---|---|
-| [Input and Output](io.md) | `read_rinex_obs`, `RinexObsHeader`, `read_bias`. |
-| [TEC Calculation](tec.md) | `calc_tec_from_rinex`, `calc_tec_from_df`, `calc_tec_from_parquet`. |
+| [Input and Output](io.md) | `read_rinex_obs`, `RinexObsHeader`, `read_rinex_nav`, `NavigationData`, `read_bias`. |
+| [Observation Geometry](geometry.md) | `compute_az_el`. |
+| [TEC Calculation](tec.md) | `compute_tec_from_rinex`, `compute_tec`, `compute_tec_from_parquet`. |
 | [Configuration](configuration.md) | `TECConfig`, `DIAGNOSTIC_COLUMNS`, `SUPPORTED_CONSTELLATIONS`, `SUPPORTED_RINEX_VERSIONS`. |
 
 For runnable workflows, start with [Quick Start](../quick-start.md) or the [guides](../guide/index.md).

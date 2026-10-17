@@ -10,7 +10,7 @@ See [justfile](justfile) for common project commands.
 
 ## Development Conventions
 
-- **Agent-generated documentation**: Unless explicitly specified otherwise, save agent-generated documents and helper files in `./docs/agents/`.
+- **Agent-generated documentation**: Unless explicitly specified otherwise, save agent-generated documents and helper files in `./docs/agents/` which are ignored by git and may be deleted at any time.
 
 - **Docstrings**: Use NumPy-style `Parameters`, `Returns`/`Yields`, `Raises` and `Attributes` sections where applicable.
 
