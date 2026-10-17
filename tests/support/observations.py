@@ -36,7 +36,7 @@ def physical_observations(tec, *, cadence=30, start=None):
 
 
 def calculate(header, observations, bias=None, **kwargs):
-    return gt.calc_tec_from_df(
+    return gt.compute_tec(
         observations,
         header,
         bias,

@@ -84,7 +84,7 @@ def multiday_data(test_data_dir) -> dict[str, StationData]:
         del lf
         observations = collect_short_windows(full_observations)
         station_bias = None if v2 else bias
-        tec = gt.calc_tec_from_df(
+        tec = gt.compute_tec(
             observations,
             header,
             station_bias,
@@ -121,7 +121,7 @@ def test_real_paired_injections_across_stations_and_days(multiday_data, station)
         (gps.dt.hour() == hour)
         & gps.dt.minute().is_between(minute_start, minute_start + 20, closed="left")
     )
-    observed = gt.calc_tec_from_df(
+    observed = gt.compute_tec(
         windows,
         data.header,
         data.bias,
@@ -220,7 +220,7 @@ def test_real_paired_injections_across_stations_and_days(multiday_data, station)
             )
             system = str(prn)[0]
             version = data.header.version[0]
-            public = gt.calc_tec_from_df(
+            public = gt.compute_tec(
                 selected_obs,
                 data.header,
                 config=gt.TECConfig(
@@ -308,7 +308,7 @@ def test_multiday_shuffled_gps_and_parquet(multiday_data, station, tmp_path):
     config = gt.TECConfig(retain_diagnostics="all")
     shuffled = data.observations.sample(fraction=1, shuffle=True, seed=29)
     inferred = replace(data.header, sampling_interval=None)
-    from_shuffled = gt.calc_tec_from_df(
+    from_shuffled = gt.compute_tec(
         shuffled.lazy(), inferred, data.bias, config, nav_fn=data.nav
     ).collect(engine="in-memory")
     gps = shuffled.with_columns(
@@ -316,7 +316,7 @@ def test_multiday_shuffled_gps_and_parquet(multiday_data, station, tmp_path):
     )
     path = tmp_path / f"{station}-two-days.parquet"
     gps.write_parquet(path, metadata=inferred.to_metadata())
-    from_parquet = gt.calc_tec_from_parquet(
+    from_parquet = gt.compute_tec_from_parquet(
         path, data.bias, config, nav_fn=data.nav
     ).collect(engine="in-memory")
     for result in (from_shuffled, from_parquet):
@@ -337,7 +337,7 @@ def test_multiday_arc_and_daily_dcb_reference(multiday_data, station):
     # Frozen basic-mode contract: each physical arc has its own code level.
     # Repair-mode continuity is tested against paired known-integer injections.
     data = multiday_data[station]
-    result = gt.calc_tec_from_df(
+    result = gt.compute_tec(
         data.observations,
         data.header,
         data.bias,

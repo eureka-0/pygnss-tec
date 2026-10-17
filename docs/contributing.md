@@ -112,6 +112,9 @@ When reporting a bug, please provide as much detail as possible, including:
 - Any relevant error messages or stack traces.
 - Data files or code snippets that can help reproduce the issue, if applicable.
 
+The repository is tested with standard IGS GNSS data files downloaded from the **Crustal Dynamics Data Information System (CDDIS) database**.
+If a problem occurs with GNSS data files from another database, attach those files to the bug report issue.
+
 ## Feature requests
 
 If you have ideas for new features or improvements to PyGNSS-TEC, please submit a feature request by opening an issue on the [GitHub repository](https://github.com/Eureka-0/pygnss-tec/issues).

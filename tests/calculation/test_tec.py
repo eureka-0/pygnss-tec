@@ -46,7 +46,7 @@ def test_complete_cibg_final_products(rinex_obs_v3_hatanaka, rinex_nav_v3, bias)
             "stec_p_corrected",
         ]
     )
-    df = gt.calc_tec_from_rinex(
+    df = gt.compute_tec_from_rinex(
         rinex_obs_v3_hatanaka, rinex_nav_v3, bias, config
     ).collect(engine="in-memory")
     assert df.height == 50315
@@ -78,13 +78,13 @@ def test_complete_cibg_final_products(rinex_obs_v3_hatanaka, rinex_nav_v3, bias)
     assert df.filter(pl.col("prn") == "C38")["C1_code"].n_unique() > 1
 
 
-def test_calc_tec_from_df_matches_rinex(short_rinex_v3, rinex_nav_v3, bias):
+def test_compute_tec_matches_rinex(short_rinex_v3, rinex_nav_v3, bias):
     header, lf = gt.read_rinex_obs(short_rinex_v3, constellations="G", include_lli=True)
     config = gt.TECConfig(constellations="G", retain_diagnostics=["mf"])
-    from_df = gt.calc_tec_from_df(
-        lf, header, bias, config, nav_fn=rinex_nav_v3
-    ).collect(engine="in-memory")
-    from_rinex = gt.calc_tec_from_rinex(
+    from_df = gt.compute_tec(lf, header, bias, config, nav_fn=rinex_nav_v3).collect(
+        engine="in-memory"
+    )
+    from_rinex = gt.compute_tec_from_rinex(
         short_rinex_v3, rinex_nav_v3, bias, config
     ).collect(engine="in-memory")
     assert isinstance(from_df, pl.DataFrame)
@@ -94,26 +94,26 @@ def test_calc_tec_from_df_matches_rinex(short_rinex_v3, rinex_nav_v3, bias):
     assert_valid_tec_frame(from_df)
 
 
-def test_calc_tec_from_df_rejects_non_utc_timezone(small_observations, rinex_nav_v3):
+def test_compute_tec_rejects_non_utc_timezone(small_observations, rinex_nav_v3):
     header, observations = small_observations
     observations = observations.with_columns(
         pl.col("time").dt.convert_time_zone("Asia/Shanghai")
     )
 
     with pytest.raises(ValueError, match="UTC timezone or be timezone-naive"):
-        gt.calc_tec_from_df(observations, header, nav_fn=rinex_nav_v3).collect(
+        gt.compute_tec(observations, header, nav_fn=rinex_nav_v3).collect(
             engine="in-memory"
         )
 
 
-def test_calc_tec_from_df_requires_navigation_for_raw_observations(small_observations):
+def test_compute_tec_requires_navigation_for_raw_observations(small_observations):
     header, observations = small_observations
 
     with pytest.raises(ValueError, match="azimuth, elevation"):
-        gt.calc_tec_from_df(observations, header).collect(engine="in-memory")
+        gt.compute_tec(observations, header).collect(engine="in-memory")
 
 
-def test_calc_tec_from_parquet_rejects_missing_metadata(
+def test_compute_tec_from_parquet_rejects_missing_metadata(
     tmp_path, small_observations, rinex_nav_v3
 ):
     _, observations = small_observations
@@ -121,7 +121,7 @@ def test_calc_tec_from_parquet_rejects_missing_metadata(
     observations.write_parquet(parquet_fn)
 
     with pytest.raises(ValueError, match="Parquet metadata is missing"):
-        gt.calc_tec_from_parquet(parquet_fn, nav_fn=rinex_nav_v3).collect(
+        gt.compute_tec_from_parquet(parquet_fn, nav_fn=rinex_nav_v3).collect(
             engine="in-memory"
         )
 
@@ -129,7 +129,7 @@ def test_calc_tec_from_parquet_rejects_missing_metadata(
 def test_calc_tec_v2_without_bias_includes_recovered_observations(
     rinex_obs_v2, rinex_nav_v2
 ):
-    df = gt.calc_tec_from_rinex(
+    df = gt.compute_tec_from_rinex(
         rinex_obs_v2, rinex_nav_v2, config=gt.TECConfig(rx_bias=None)
     ).collect(engine="in-memory")
 
@@ -148,7 +148,7 @@ def test_estimated_receiver_bias_methods(
         (pl.col("time").max() - pl.col("time").min()).dt.total_seconds()
     ).item()
     assert observed_seconds > 23 * 3600
-    df = gt.calc_tec_from_df(
+    df = gt.compute_tec(
         observations,
         header,
         bias,
@@ -167,14 +167,14 @@ def test_estimated_receiver_bias_methods(
 
 def test_mapping_function_choice_changes_vtec(small_observations, bias, rinex_nav_v3):
     header, observations = small_observations
-    slm = gt.calc_tec_from_df(
+    slm = gt.compute_tec(
         observations,
         header,
         bias,
         gt.TECConfig(mapping_function="slm", retain_diagnostics=["mf"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
-    mslm = gt.calc_tec_from_df(
+    mslm = gt.compute_tec(
         observations,
         header,
         bias,
@@ -191,7 +191,7 @@ def test_mapping_function_choice_changes_vtec(small_observations, bias, rinex_na
 
 def test_constellation_filter_limits_tec_output(small_observations, bias, rinex_nav_v3):
     header, observations = small_observations
-    df = gt.calc_tec_from_df(
+    df = gt.compute_tec(
         observations,
         header,
         bias,
@@ -206,14 +206,14 @@ def test_constellation_filter_limits_tec_output(small_observations, bias, rinex_
 
 def test_min_elevation_filters_tec_output(small_observations, bias, rinex_nav_v3):
     header, observations = small_observations
-    baseline = gt.calc_tec_from_df(
+    baseline = gt.compute_tec(
         observations,
         header,
         bias,
         gt.TECConfig(retain_diagnostics=["elevation"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
-    high_elevation = gt.calc_tec_from_df(
+    high_elevation = gt.compute_tec(
         observations,
         header,
         bias,
@@ -232,14 +232,14 @@ def test_missing_external_receiver_bias_can_be_kept_uncorrected(
 ):
     header, observations = small_observations
     observations = observations.with_columns(pl.lit("TEST").alias("station"))
-    dropped = gt.calc_tec_from_df(
+    dropped = gt.compute_tec(
         observations,
         header,
         bias,
         gt.TECConfig(retain_diagnostics=["rx_bias"]),
         nav_fn=rinex_nav_v3,
     ).collect(engine="in-memory")
-    kept = gt.calc_tec_from_df(
+    kept = gt.compute_tec(
         observations,
         header,
         bias,

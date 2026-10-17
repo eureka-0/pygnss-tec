@@ -190,10 +190,10 @@ def test_chunk_parquet_and_station_partition_invariance(tmp_path):
     header, obs = physical_observations(np.full(120, 30.0))
     obs = obs.with_columns(pl.Series(name, value) for name, value in values.items())
     config = TECConfig(rx_bias=None, retain_diagnostics="all")
-    expected = gt.calc_tec_from_df(obs, header, config=config).collect()
+    expected = gt.compute_tec(obs, header, config=config).collect()
     chunks = pl.concat([obs[:39], obs[39:41], obs[41:]], rechunk=False)
     assert_frame_equal(
-        gt.calc_tec_from_df(chunks.lazy(), header, config=config).collect(
+        gt.compute_tec(chunks.lazy(), header, config=config).collect(
             engine="streaming"
         ),
         expected,
@@ -201,10 +201,10 @@ def test_chunk_parquet_and_station_partition_invariance(tmp_path):
     path = tmp_path / "observations.parquet"
     chunks.write_parquet(path, row_group_size=17, metadata=header.to_metadata())
     assert_frame_equal(
-        gt.calc_tec_from_parquet(path, config=config).collect(), expected
+        gt.compute_tec_from_parquet(path, config=config).collect(), expected
     )
     station_b = obs.with_columns(pl.lit("NEXT").alias("station"))
-    merged = gt.calc_tec_from_df(
+    merged = gt.compute_tec(
         pl.concat([obs, station_b]), header, config=config
     ).collect()
     assert_frame_equal(merged.filter(pl.col("station") == "TEST"), expected)
@@ -213,9 +213,7 @@ def test_chunk_parquet_and_station_partition_invariance(tmp_path):
         expected.select("stec_p_corrected", "slip_n1", "slip_status")
     )
     assert_frame_equal(
-        gt.calc_tec_from_df(again, header, config=config)
-        .collect()
-        .select(expected.columns),
+        gt.compute_tec(again, header, config=config).collect().select(expected.columns),
         expected,
     )
     legacy = header.to_metadata()
@@ -264,12 +262,12 @@ def test_rinex_entrypoint_repairs_across_file_boundary(tmp_path, monkeypatch, ve
     for path, body in ((single, rows), (first, rows[:40]), (second, rows[40:])):
         path.write_text(header_text + "".join(body))
     config = TECConfig(rx_bias=None, retain_diagnostics="all")
-    expected = gt.calc_tec_from_rinex(single, [], config=config).collect()
-    merged = gt.calc_tec_from_rinex([second, first], [], config=config).collect()
+    expected = gt.compute_tec_from_rinex(single, [], config=config).collect()
+    merged = gt.compute_tec_from_rinex([second, first], [], config=config).collect()
     assert_frame_equal(merged, expected)
     assert expected.filter(pl.col("slip_status") == "phase_repaired").height == 1
     assert expected["slip_n1"].null_count() == len(expected)
     header, obs = gt.read_rinex_obs(single, include_lli=True)
     assert_frame_equal(
-        gt.calc_tec_from_df(obs, header, config=config, nav_fn=[]).collect(), expected
+        gt.compute_tec(obs, header, config=config, nav_fn=[]).collect(), expected
     )

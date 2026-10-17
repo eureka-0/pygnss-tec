@@ -9,13 +9,14 @@ Improve scalability, signal/product coverage and workflows without weakening the
 
 - **Main goal:** complete M1's remaining observation-state, calibration and geometry contracts.
 - **Underway:** no task is currently in progress.
+- **Delivered this round:** T003 adds reusable native navigation, independent azimuth/elevation and direct TEC entry-point renaming, with matched validation below.
 - **Delivered:** R05, T005 and T030 join the [archived deliveries](docs/roadmap-history.md#completed-cycle-slip-evaluation-and-continuity-tasks).
   Detection evaluation and default final-STEC temporal alignment are complete within their recorded scope; M1 remains open.
 - **Recommended next round:** begin T031 with the header-field support matrix and effective-state design review, then implement its reviewed scope.
   T032 follows the effective-header contract to target flag-6 evidence by satellite and phase signal.
   Both plans require review of the state/event semantics before implementation.
 - **Independent candidates:** T006 addresses receiver-bias identifiability and explicit failures; T007 addresses missing-SNR policy and robust leveling.
-  T001 can extend the completed performance work into consistent stage/RSS baselines; T003/T004 retain navigation reuse and bounded input processing.
+  T001 can extend the completed performance work into consistent stage/RSS baselines; T004 retains bounded input processing.
 - **Constraints:** blank-epoch events remain omitted, raw observations remain unchanged, and ordinary reader calls keep `include_lli=False` while RINEX-to-TEC opts in.
   The default `repair` mode provides temporal alignment, not certified carrier-integer recovery or natural-event classification.
   Unreviewed header/event semantics keep T031/T032 in backlog; they are planning gates, not blockers for independent tasks.
@@ -52,7 +53,6 @@ Task files hold implementation plans, acceptance requirements and handoff notes.
 |---|---|---|---|---|---|
 | T001 | Establish stage and memory baselines | P1 | backlog | — | [Plan](docs/tasks/T001.md) |
 | T002 | Push required observation columns into the reader | P1 | backlog | — | [Plan](docs/tasks/T002.md) |
-| T003 | Reuse navigation and unique epoch/SV geometry | P1 | backlog | — | [Plan](docs/tasks/T003.md) |
 | T004 | Introduce genuinely bounded input batches | P1 | backlog | — | [Plan](docs/tasks/T004.md) |
 | T010 | Bound parallelism and eliminate demonstrated rescans | P1 | backlog | — | [Plan](docs/tasks/T010.md) |
 
@@ -121,8 +121,11 @@ Follow the NumPy-style convention delivered by T029; this task owns the broader 
 
 ## Recently Completed
 
-No entries are awaiting archival.
-Completed deliveries are recorded in [history](docs/roadmap-history.md).
+| ID | Task | Priority | Status | Dependencies | Completed | Details |
+|---|---|---|---|---|---|---|
+| T003 | Reuse navigation and unique epoch/SV geometry | P1 | done | — | 2026-10-17 | [Outcome](docs/tasks/T003.md): native navigation ownership, Arrow queries, independent angles and direct TEC API migration; matched geometry/TEC, clean-wheel and local performance checks passed. |
+
+Earlier completed deliveries are recorded in [history](docs/roadmap-history.md).
 
 ## Conventions
 

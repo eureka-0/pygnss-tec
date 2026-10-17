@@ -46,11 +46,11 @@ def test_tec_projection_preserves_rows_values_and_parquet_contract(
     )
     if empty:
         obs = obs.head(0)
-    full = gt.calc_tec_from_df(
+    full = gt.compute_tec(
         obs, h, config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
     ).collect(engine="in-memory")
     config = gt.TECConfig(rx_bias=None, retain_diagnostics=retained)
-    result = gt.calc_tec_from_df(obs, h, config=config).collect(engine="in-memory")
+    result = gt.compute_tec(obs, h, config=config).collect(engine="in-memory")
     assert {"azimuth", "elevation"}.issubset(result.columns)
     assert INTERNAL_COLUMNS.isdisjoint(result.columns)
     assert not any(name.startswith("_") for name in result.columns)
@@ -71,7 +71,7 @@ def test_tec_projection_preserves_rows_values_and_parquet_contract(
     assert_frame_equal(result, expected.select(result.columns), check_exact=True)
     path = tmp_path / "observations.parquet"
     obs.write_parquet(path, metadata=h.to_metadata())
-    from_parquet = gt.calc_tec_from_parquet(path, config=config).collect(
+    from_parquet = gt.compute_tec_from_parquet(path, config=config).collect(
         engine="in-memory"
     )
     assert_frame_equal(result, from_parquet, check_exact=True)
@@ -103,10 +103,10 @@ def test_rinex_tec_explicitly_requests_lli_even_when_output_hides_it(
         "_prepare_observations",
         lambda lf, h, utc, nav: _prepare_observations(lf, h, utc, None),
     )
-    full = gt.calc_tec_from_rinex(
+    full = gt.compute_tec_from_rinex(
         path, "unused", config=gt.TECConfig(rx_bias=None, retain_diagnostics="all")
     ).collect(engine="in-memory")
-    normal = gt.calc_tec_from_rinex(
+    normal = gt.compute_tec_from_rinex(
         path, "unused", config=gt.TECConfig(rx_bias=None)
     ).collect(engine="in-memory")
     assert calls == [True, True]
@@ -124,7 +124,7 @@ def test_rinex_tec_explicitly_requests_lli_even_when_output_hides_it(
     missing = missing.with_columns(
         pl.lit(90.0).alias("azimuth"), pl.lit(60.0).alias("elevation")
     )
-    no_lli = gt.calc_tec_from_df(missing, h, config=gt.TECConfig(rx_bias=None)).collect(
+    no_lli = gt.compute_tec(missing, h, config=gt.TECConfig(rx_bias=None)).collect(
         engine="in-memory"
     )
     assert no_lli.height == 4
@@ -150,10 +150,10 @@ def test_bias_projection_preserves_calibration_and_empty_schema(
     elif case == "empty":
         obs = obs.head(0)
     monkeypatch.setattr(tc, "read_bias", lambda _: product.lazy())
-    full = gt.calc_tec_from_df(
+    full = gt.compute_tec(
         obs, h, "unused", gt.TECConfig(rx_bias=None, retain_diagnostics="all")
     ).collect(engine="in-memory")
-    result = gt.calc_tec_from_df(
+    result = gt.compute_tec(
         obs, h, "unused", gt.TECConfig(rx_bias=None, retain_diagnostics=retained)
     ).collect(engine="in-memory")
     expected = full if retained == "all" else full.filter(pl.col("qc_valid"))

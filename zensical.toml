@@ -31,6 +31,7 @@ nav = [
     { "API Reference" = [
         "api/index.md",
         { "Input and Output" = "api/io.md" },
+        { "Observation Geometry" = "api/geometry.md" },
         { "TEC Calculation" = "api/tec.md" },
         { "Configuration" = "api/configuration.md" },
     ] },

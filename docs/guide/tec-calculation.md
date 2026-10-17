@@ -15,7 +15,7 @@ obs = "data/rinex_obs_v3/CIBG00IDN_R_20240100000_01D_30S_MO.crx.gz"
 nav = "data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz"
 bias = "data/bias/CAS0OPSRAP_20240100000_01D_01D_DCB.BIA.gz"
 
-tec = gt.calc_tec_from_rinex(obs, nav, bias)
+tec = gt.compute_tec_from_rinex(obs, nav, bias)
 result = tec.collect(engine="in-memory")
 ```
 
@@ -25,13 +25,13 @@ The RINEX calculation function reads LLI for quality control even when diagnosti
 
 ## From a DataFrame or LazyFrame
 
-Read the observations once, then pass the wide table and its header to `calc_tec_from_df`:
+Read the observations once, then pass the wide table and its header to `compute_tec`:
 
 ```python
 header, observations = gt.read_rinex_obs(obs, include_lli=True)
 
 # Apply any observation preprocessing while preserving keys and quality evidence.
-tec = gt.calc_tec_from_df(observations, header, bias, nav_fn=nav)
+tec = gt.compute_tec(observations, header, bias, nav_fn=nav)
 result = tec.collect(engine="in-memory")
 ```
 
@@ -44,6 +44,34 @@ The input table must meet the following requirements:
 If receiver latitude and longitude columns are present, they take precedence over the header position.
 Tables without LLI are accepted, but the calculation cannot use the missing recorded lock and half-cycle information.
 
+## Calculate angles separately
+
+Use `read_rinex_nav` and `compute_az_el` when preprocessing observations or reusing navigation across multiple calculations:
+
+```python
+header, observations = gt.read_rinex_obs(obs, include_lli=True)
+navigation = gt.read_rinex_nav(nav)
+observations_with_angles = gt.compute_az_el(
+    observations, header, navigation
+).collect(engine="in-memory")
+
+tec = gt.compute_tec(observations_with_angles, header, bias)
+result = tec.collect(engine="in-memory")
+```
+
+`compute_az_el` supports wide and long observations from one station, preserves row order and input time values, and appends Float64 `azimuth` and `elevation` in degrees.
+It uses the same UTC/GPS time and receiver-position conventions as TEC calculation.
+Azimuth is clockwise from north in [0, 360), and elevation is in [-90, 90].
+Unavailable geometry is null; negative elevations are retained, and no TEC quality control or minimum-elevation filter is applied.
+If either angle column already exists, use `overwrite=True` to replace both.
+Satellite query collection and propagation finish before return; the remaining angle calculation is evaluated when the result is collected.
+Collect once when reusing the prepared observations, since multiple consumers of a LazyFrame may evaluate its plan again.
+Keep `include_lli=True` when the prepared observations will be used for TEC.
+
+The direct RINEX entry point requests the configured constellations and all code/phase/SNR fallbacks, while a default `read_rinex_obs` call retains a broader set of observations.
+When preprocessing only for TEC, use the reader's `constellations` and `codes` options to retain the same complete signal pairs and their quality evidence.
+Reading and calculating angles for additional observations adds work even when the final TEC selection is unchanged.
+
 ## Cache observations in Parquet
 
 You can save parsed observations to Parquet when repeating calculations with different settings.
@@ -53,13 +81,25 @@ Include the header metadata to preserve receiver history, sampling intervals and
 header, observations = gt.read_rinex_obs(obs, include_lli=True)
 observations.sink_parquet("observations.parquet", metadata=header.to_metadata())
 
-tec = gt.calc_tec_from_parquet("observations.parquet", bias, nav_fn=nav)
+tec = gt.compute_tec_from_parquet("observations.parquet", bias, nav_fn=nav)
 result = tec.collect(engine="in-memory")
 ```
 
 Subsequent calls read the cached observations without decoding the original RINEX files again.
 You still need navigation files unless the cached table contains the required geometry.
-Polars preserves the `time` column's timezone, and `calc_tec_from_parquet` also requires the saved header metadata.
+Polars preserves the `time` column's timezone, and `compute_tec_from_parquet` also requires the saved header metadata.
+
+To cache the prepared angles as well, save `observations_with_angles` with the same header metadata:
+
+```python
+observations_with_angles.write_parquet(
+    "observations_with_angles.parquet", metadata=header.to_metadata()
+)
+tec = gt.compute_tec_from_parquet("observations_with_angles.parquet", bias)
+result = tec.collect(engine="in-memory")
+```
+
+This workflow does not reread navigation or recompute satellite geometry.
 
 ## Output and diagnostics
 
@@ -71,7 +111,7 @@ Use `retain_diagnostics` to include selected diagnostic columns and `collect_sch
 
 ```python
 config = gt.TECConfig(retain_diagnostics=["mw", "qc_reason", "calibration_status"])
-selected = gt.calc_tec_from_rinex(obs, nav, bias, config)
+selected = gt.compute_tec_from_rinex(obs, nav, bias, config)
 print(selected.collect_schema())
 ```
 
@@ -81,7 +121,7 @@ To include rejected rows and all available diagnostics, use:
 
 ```python
 config = gt.TECConfig(retain_diagnostics="all")
-diagnostic_result = gt.calc_tec_from_rinex(obs, nav, bias, config).collect(
+diagnostic_result = gt.compute_tec_from_rinex(obs, nav, bias, config).collect(
     engine="in-memory"
 )
 rejected = diagnostic_result.filter(~diagnostic_result["qc_valid"])
@@ -100,7 +140,7 @@ You can select the Polars execution engine for internal queries and the final re
 import polars as pl
 
 with pl.Config(engine_affinity="in-memory"):
-    tec = gt.calc_tec_from_rinex(obs, nav, bias)
+    tec = gt.compute_tec_from_rinex(obs, nav, bias)
     result = tec.collect(engine="in-memory")
 
 tec.sink_parquet("tec.parquet", engine="streaming")

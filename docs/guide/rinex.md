@@ -3,6 +3,7 @@
 PyGNSS-TEC supports reading RINEX v2.x and v3.x observation files, including Hatanaka-compressed and gzip files.
 Use `read_rinex_obs` to read observations and return a `RinexObsHeader` object and a Polars LazyFrame.
 To calculate navigation geometry and TEC, use the functions described in [TEC Calculation](tec-calculation.md).
+Use `read_rinex_nav` to load broadcast navigation separately and reuse it across geometry calculations.
 
 ## Read observations
 
@@ -88,5 +89,26 @@ Timestamped flag-6 payloads are stored as event metadata and cannot overwrite ob
 Special records with blank epoch fields are read and omitted, without inheriting timestamps or changing receiver state.
 Header-update events are retained, but their new values are not applied to later observations.
 Dynamic header updates and satellite/phase-specific flag-6 interpretation remain planned work.
+
+## Read navigation
+
+Read RINEX 2/3 broadcast navigation, including gzip files:
+
+```python
+navigation = gt.read_rinex_nav(
+    "data/rinex_nav_v3/BRDC00IGS_R_20240100000_01D_MN.rnx.gz",
+    constellations="CG",
+)
+print(navigation)
+print(navigation.satellites)
+```
+
+The result is a read-only `NavigationData` object containing native ephemerides and per-satellite indexes.
+Reading and indexing finish before return, and later calculations do not need the source files to remain available.
+Multiple files are merged in sorted path order; `constellations=None` retains all parsed constellations.
+The object exposes source paths, constellation/satellite identifiers, the retained ephemeris count and the reference-epoch range in UTC Unix nanoseconds.
+This range describes reference epochs, not a guarantee of valid navigation coverage.
+SBAS records can be read, but SBAS propagation is not implemented and produces unavailable geometry.
+The object supports reuse within one process; it is not a DataFrame or a lossless navigation-file editing format.
 
 See the [I/O API](../api/io.md) for function parameters, header fields and serialization methods.

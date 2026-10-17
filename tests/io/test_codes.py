@@ -62,7 +62,7 @@ def test_tec_requires_wide_observations(tmp_path):
     write_minimal_rinex(path, 3)
     header, frame = gt.read_rinex_obs(path, pivot=False, include_lli=True)
     with pytest.raises(ValueError, match="pivot=True"):
-        gt.calc_tec_from_df(frame, header)
+        gt.compute_tec(frame, header)
 
 
 def test_code_pattern_generator_is_reused_across_files(tmp_path):

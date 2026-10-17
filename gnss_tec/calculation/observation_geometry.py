@@ -1,4 +1,4 @@
-"""Private receiver metadata and navigation preparation for TEC calculations."""
+"""Observation geometry and private receiver-state preparation."""
 
 from __future__ import annotations
 
@@ -8,8 +8,15 @@ from pathlib import Path
 import polars as pl
 
 from .._arrow import record_batch
-from .._core import _azimuth_elevation, _ecef_to_geodetic, _satellite_positions
+from .._core import (
+    _azimuth_elevation,
+    _ecef_to_geodetic,
+    _satellite_positions,
+    _satellite_positions_from_files,
+)
+from ..io.navigation import NavigationData
 from ..io.rinex import RinexObsHeader, _handle_fn
+from .observation_time import _utc_epoch
 
 
 def _calculate_azimuth_elevation(samples: pl.Series) -> pl.Series:
@@ -29,21 +36,11 @@ def _event_resets_ambiguity(flag: int, records: str) -> bool:
     return flag != 0
 
 
-def _prepare_observations(
-    lf: pl.LazyFrame,
-    header: RinexObsHeader,
-    utc_epoch: pl.Expr,
-    nav_fn: str | Path | Iterable[str | Path] | None,
+def _resolve_receiver(
+    lf: pl.LazyFrame, header: RinexObsHeader, utc_epoch: pl.Expr
 ) -> pl.LazyFrame:
-    """Generate state and geometry without adding them to the raw reader schema."""
+    """Resolve per-epoch coordinates with the existing header/column precedence."""
     schema = lf.collect_schema()
-    reset_epochs = sorted(
-        {
-            epoch
-            for epoch, flag, records in header.epoch_events
-            if _event_resets_ambiguity(flag, records)
-        }
-    )
     lf = lf.with_columns(utc_epoch.dt.epoch("ns").alias("_utc_ns"))
     if header.receiver_history:
         history = sorted(set(header.receiver_history), key=lambda item: item[0])
@@ -62,10 +59,23 @@ def _prepare_observations(
                     [item[2] for item in history], dtype=pl.String
                 ),
             }
-        ).lazy()
-        lf = lf.sort("_utc_ns").join_asof(
-            receivers, left_on="_utc_ns", right_on="_header_epoch", strategy="backward"
         )
+        if len(history) == 1:
+            # A single effective header needs no sort/join. Preserve the null
+            # position before its first epoch, just as a backward as-of join does.
+            lf = lf.with_columns(
+                pl.when(pl.col("_utc_ns") >= history[0][0])
+                .then(pl.lit(receivers[name][0], dtype=receivers.schema[name]))
+                .alias(name)
+                for name in receivers.columns
+            )
+        else:
+            lf = lf.sort("_utc_ns").join_asof(
+                receivers.lazy(),
+                left_on="_utc_ns",
+                right_on="_header_epoch",
+                strategy="backward",
+            )
     else:
         lf = lf.with_columns(
             pl.lit(header.rx_geodetic[0]).alias("_header_lat"),
@@ -85,6 +95,25 @@ def _prepare_observations(
             )
         ]
     )
+    return lf
+
+
+def _prepare_observations(
+    lf: pl.LazyFrame,
+    header: RinexObsHeader,
+    utc_epoch: pl.Expr,
+    nav_fn: str | Path | Iterable[str | Path] | None,
+) -> pl.LazyFrame:
+    """Prepare receiver/event state and optional geometry for TEC."""
+    schema = lf.collect_schema()
+    reset_epochs = sorted(
+        {
+            epoch
+            for epoch, flag, records in header.epoch_events
+            if _event_resets_ambiguity(flag, records)
+        }
+    )
+    lf = _resolve_receiver(lf, header, utc_epoch)
     if "receiver_state" in schema:
         lf = lf.with_columns(pl.col("receiver_state").alias("_event_state"))
     elif reset_epochs:
@@ -112,17 +141,28 @@ def _prepare_observations(
         ).alias("_receiver_state")
     )
     if nav_fn is None:
+        if {"azimuth", "elevation"} <= set(schema.names()):
+            # Match the geometry-column order of the navigation preparation path.
+            lf = lf.select(pl.exclude("azimuth", "elevation"), "azimuth", "elevation")
         return lf
+    return _append_geometry(lf, nav_fn).fill_nan(None)
 
+
+def _append_geometry(
+    lf: pl.LazyFrame, navigation: NavigationData | str | Path | Iterable[str | Path]
+) -> pl.LazyFrame:
     # Propagate once per epoch/satellite, even when rows contain multiple signals.
     keys = lf.select("_utc_ns", "prn").unique().sort("_utc_ns", "prn").collect()
-    positions = pl.DataFrame(
-        _satellite_positions(
-            _handle_fn(nav_fn),
-            keys["_utc_ns"].to_list(),
-            keys["prn"].cast(pl.String).to_list(),
-        )
-    ).with_columns(pl.col("prn").cast(pl.Categorical))
+    query = record_batch(keys.with_columns(pl.col("prn").cast(pl.String)))
+    batch = (
+        _satellite_positions(navigation._handle, query)
+        if isinstance(navigation, NavigationData)
+        else _satellite_positions_from_files(_handle_fn(navigation), query)
+    )
+    # Keep the join dtype identical for external String and reader Categorical PRNs.
+    positions = pl.from_arrow(batch)
+    assert isinstance(positions, pl.DataFrame)
+    positions = positions.with_columns(pl.col("prn").cast(keys.schema["prn"]))
     lf = lf.drop("azimuth", "elevation", strict=False).join(
         positions.lazy(),
         on=["_utc_ns", "prn"],
@@ -130,21 +170,139 @@ def _prepare_observations(
         validate="m:1",
         maintain_order="left",
     )
-    return (
-        lf.with_columns(
-            pl.all_horizontal(pl.col("_sat_x", "_sat_y", "_sat_z").is_finite()).alias(
-                "_geometry_available"
-            ),
-            pl.struct("_sat_x", "_sat_y", "_sat_z", "rx_lat", "rx_lon", "_rx_alt")
-            .map_batches(
-                _calculate_azimuth_elevation,
-                return_dtype=pl.Struct(
-                    {"azimuth": pl.Float64, "elevation": pl.Float64}
-                ),
-                is_elementwise=True,
-            )
-            .alias("_aer"),
+    return lf.with_columns(
+        pl.all_horizontal(pl.col("_sat_x", "_sat_y", "_sat_z").is_finite()).alias(
+            "_geometry_available"
+        ),
+        pl.struct("_sat_x", "_sat_y", "_sat_z", "rx_lat", "rx_lon", "_rx_alt")
+        .map_batches(
+            _calculate_azimuth_elevation,
+            return_dtype=pl.Struct({"azimuth": pl.Float64, "elevation": pl.Float64}),
+            is_elementwise=True,
         )
-        .unnest("_aer")
-        .fill_nan(None)
+        .alias("_aer"),
+    ).unnest("_aer")
+
+
+def compute_az_el(
+    observations: pl.DataFrame | pl.LazyFrame,
+    header: RinexObsHeader,
+    navigation: NavigationData,
+    *,
+    overwrite: bool = False,
+) -> pl.LazyFrame:
+    """Append satellite azimuth and elevation to observations from one station.
+
+    Parameters
+    ----------
+    observations : polars.DataFrame or polars.LazyFrame
+        Wide or long observations with time, station and prn. Time must be
+        timezone-aware UTC or timezone-naive GPS. Existing rx_lat/rx_lon
+        columns override header coordinates in degrees; height follows the
+        header's receiver history in metres.
+    header : RinexObsHeader
+        Observation time-scale and receiver-position metadata.
+    navigation : NavigationData
+        Broadcast ephemerides loaded by read_rinex_nav. Reuse this object
+        across calls to avoid repeated decoding and indexing.
+    overwrite : bool, default False
+        Replace both angle columns if either already exists. False raises
+        rather than mixing existing and newly computed angles.
+
+    Returns
+    -------
+    polars.LazyFrame
+        Original rows, columns and time values plus Float64 azimuth/elevation
+        in degrees. Azimuth is clockwise from north in [0, 360); elevation
+        is in [-90, 90]. Unavailable geometry is null; no elevation filter or
+        TEC quality control is applied. Query collection and satellite
+        propagation complete before return; angle evaluation remains lazy.
+
+    Raises
+    ------
+    TypeError
+        If navigation is not NavigationData or time is not Datetime.
+    ValueError
+        If required columns are absent, time/PRN is invalid, multiple stations
+        are present, or existing angle columns would be overwritten.
+    """
+    if not isinstance(navigation, NavigationData):
+        raise TypeError("navigation must be NavigationData from read_rinex_nav().")
+    lf = observations.lazy()
+    schema = lf.collect_schema()
+    missing = sorted({"time", "station", "prn"} - set(schema.names()))
+    if missing:
+        raise ValueError(
+            f"compute_az_el requires columns that are missing: {', '.join(missing)}."
+        )
+    if not overwrite and {"azimuth", "elevation"} & set(schema.names()):
+        raise ValueError(
+            "Angle columns already exist; use overwrite=True to replace both."
+        )
+    epoch = _utc_epoch(lf, header)
+    invalid, stations = (
+        lf.select(
+            (
+                epoch.is_null()
+                | ~epoch.dt.epoch("us").is_between(
+                    -(2**63) // 1000 + 1, (2**63 - 1) // 1000
+                )
+            ).any(),
+            pl.col("station").n_unique(),
+        )
+        .collect()
+        .row(0)
     )
+    if invalid:
+        raise ValueError(
+            "Observation times must be non-null and within the signed nanosecond range."
+        )
+    if stations > 1:
+        raise ValueError(
+            "Observations must belong to one station; process stations separately."
+        )
+    original = schema.names()
+    # Protect original columns if a caller retained private preparation diagnostics.
+    working_columns = {
+        "_utc_ns",
+        "_header_epoch",
+        "_header_lat",
+        "_header_lon",
+        "_header_alt",
+        "_header_receiver",
+        "_sat_x",
+        "_sat_y",
+        "_sat_z",
+        "_geometry_available",
+        "_aer",
+    }
+    saved = {}
+    occupied = set(original)
+    for name in sorted(working_columns & occupied):
+        alias = f"_az_el_original{name}"
+        while alias in occupied:
+            alias += "_"
+        occupied.add(alias)
+        saved[name] = alias
+    if saved:
+        lf = lf.with_columns(
+            pl.col(name).alias(alias) for name, alias in saved.items()
+        ).drop(saved)
+    # Receiver-history joins sort by UTC; only this branch needs row restoration.
+    row_index = "_az_el_row"
+    while row_index in occupied:
+        row_index += "_"
+    restore_order = len(header.receiver_history) > 1
+    if restore_order:
+        lf = lf.with_row_index(row_index)
+    result = _append_geometry(_resolve_receiver(lf, header, epoch), navigation)
+    if restore_order:
+        result = result.sort(row_index)
+    output = [
+        pl.col(name).cast(schema[name])
+        if name in {"rx_lat", "rx_lon", "_rx_alt"}
+        else pl.col(saved.get(name, name)).alias(name)
+        for name in original
+        if name not in {"azimuth", "elevation"}
+    ]
+    return result.select(*output, pl.col("azimuth", "elevation").fill_nan(None))

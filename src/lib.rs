@@ -7,7 +7,7 @@ use calculation::{geometry, navigation};
 use io::{observations, quality, rinex as rinex_io};
 use signals::{arcs as slips, selection};
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use arrow::{array::RecordBatch, pyarrow::PyArrowType};
 use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
@@ -144,27 +144,76 @@ fn _read_obs(
     Ok((header.into(), PyArrowType(batch)))
 }
 
-/// Propagate navigation records for UTC nanosecond epoch/satellite pairs.
-/// Geometry is private to TEC preparation and is never part of reader output.
+#[pyclass(frozen)]
+struct _NavigationData {
+    store: Arc<navigation::NavigationStore>,
+}
+
+#[pymethods]
+impl _NavigationData {
+    #[getter]
+    fn sources(&self) -> Vec<String> {
+        self.store.sources.clone()
+    }
+    #[getter]
+    fn satellites(&self) -> Vec<String> {
+        self.store.satellites.clone()
+    }
+    #[getter]
+    fn constellations(&self) -> &str {
+        &self.store.constellations
+    }
+    #[getter]
+    fn n_ephemerides(&self) -> usize {
+        self.store.n_ephemerides
+    }
+    #[getter]
+    fn epoch_range(&self) -> Option<(i64, i64)> {
+        self.store.epoch_range
+    }
+}
+
+#[pyfunction]
+fn _read_nav(
+    py: Python<'_>,
+    nav_fn: Vec<String>,
+    constellations: Option<String>,
+) -> PyResult<_NavigationData> {
+    let store =
+        py.detach(|| navigation::NavigationStore::load(nav_fn, constellations.as_deref(), None))?;
+    Ok(_NavigationData {
+        store: Arc::new(store),
+    })
+}
+
+/// Borrow a loaded store; the Arrow query buffers remain in their original allocation.
 #[pyfunction]
 fn _satellite_positions(
     py: Python<'_>,
-    mut nav_fn: Vec<String>,
-    times: Vec<i64>,
-    prns: Vec<String>,
+    navigation: &_NavigationData,
+    input: PyArrowType<RecordBatch>,
 ) -> PyResult<PyArrowType<RecordBatch>> {
-    if times.len() != prns.len() {
-        return Err(PyValueError::new_err("Epoch and PRN lengths must match"));
-    }
-    nav_fn.sort();
-    py.detach(|| navigation::record_batch(&nav_fn, times, prns))
+    let store = Arc::clone(&navigation.store);
+    py.detach(|| store.record_batch(input.0)).map(PyArrowType)
+}
+
+#[pyfunction]
+fn _satellite_positions_from_files(
+    py: Python<'_>,
+    nav_fn: Vec<String>,
+    input: PyArrowType<RecordBatch>,
+) -> PyResult<PyArrowType<RecordBatch>> {
+    py.detach(|| navigation::record_batch(nav_fn, input.0))
         .map(PyArrowType)
 }
 
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_read_obs, m)?)?;
+    m.add_class::<_NavigationData>()?;
+    m.add_function(wrap_pyfunction!(_read_nav, m)?)?;
     m.add_function(wrap_pyfunction!(_satellite_positions, m)?)?;
+    m.add_function(wrap_pyfunction!(_satellite_positions_from_files, m)?)?;
     m.add_function(wrap_pyfunction!(_select_observations, m)?)?;
     m.add_function(wrap_pyfunction!(_basic_arcs, m)?)?;
     m.add_function(wrap_pyfunction!(_slip_arcs, m)?)?;

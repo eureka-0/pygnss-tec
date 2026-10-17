@@ -332,7 +332,7 @@ def read_rinex_obs(
     -----
     Request include_lli=True before DataFrame/Parquet TEC processing when
     recorded lock/half-cycle QC is intended. Absent LLI cannot be
-    reconstructed. calc_tec_from_rinex opts in automatically. This option
+    reconstructed. compute_tec_from_rinex opts in automatically. This option
     does not reduce source-file I/O or upstream inline-indicator parsing.
     """
     obs_fn_list = _handle_fn(obs_fn)
