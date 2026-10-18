@@ -10,64 +10,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- Add `read_rinex_nav` and read-only `NavigationData` for reusing native broadcast ephemerides and satellite indexes.
-- Add `compute_az_el` for independent azimuth/elevation calculation on wide or long observations, preserving row order and input times.
+- Add reusable navigation with `read_rinex_nav` and `NavigationData`, and standalone satellite angles with `compute_az_el`, including GLONASS geometry.
+- Preserve nanosecond timestamps and receiver/quality metadata when reading RINEX and caching observations in Parquet.
+- Add online [documentation](https://eureka-0.github.io/pygnss-tec/) with usage guides and an API reference.
 
 ### Changed
 
-- Publish ordinary CPython ABI3 wheels only for Linux x86_64/aarch64, Windows x64 and macOS x86_64/arm64.
-  Free-threaded Python and 32-bit wheels are excluded from this release.
-  GitHub Actions installs and tests each exact wheel outside the checkout on Python 3.12/Polars 1 and Python 3.14/Polars 2, and separately rebuilds and tests the source archive before publication.
-- Rename `calc_tec_from_df`, `calc_tec_from_parquet` and `calc_tec_from_rinex` to `compute_tec`, `compute_tec_from_parquet` and `compute_tec_from_rinex`, without compatibility aliases.
-- Pass navigation query columns through Arrow rather than Python time/PRN lists, retaining the existing propagation and angle kernels.
-- Keep receiver coordinates before azimuth/elevation in TEC output for both precomputed-angle and RINEX navigation workflows.
-- Remove the `custom-alloc` feature; the default allocator is now used for all builds, and the `custom-alloc` feature is no longer available.
-- Default `TECConfig.cycle_slip_mode` to `'repair'`: batch GF/MW detection with continuous offsets accepted solely by final STEC temporal continuity.
-  Every localized edge is aligned without code/noise/integer vetoes.
-  `'detect'` and historical `'basic'` remain available.
-  Up to 32 future epochs may be used; separate calls do not share state.
-  Detection misses remain a separate metric.
-- Preserve raw carrier phase and `stec_p`/`stec_p_raw`; expose opt-in `stec_p_corrected`, repair status, per-event TECU offsets and phase/GF/MW scales.
-  Carrier integer fields remain null.
-  Align final raw and DCB-corrected STEC independently after leveling; expose `slip_stec_correction` and `slip_dcb_correction`, and derive VTEC from the aligned source.
-  Physical `arc_id`, raw measurements and input bias estimates remain traceable.
-- Project RINEX-to-TEC export columns to every configured observation fallback and its phase/SNR/LLI companions, retaining existing signal-selection rules.
-- Persist `RinexObsHeader.phase_integer_cycles` through Parquet metadata.
-  The metadata does not veto temporal continuity correction.
-  Recorded half-cycle/invalid rows keep null public TEC; neighboring valid segments may be aligned without synthesizing missing observations.
-- Organize native Rust code into `io`, `calculation` and `signals` modules; retain the PyO3 entry point at `src/lib.rs` and preserve Python names.
-- Keep README introductory; move configuration, scientific conventions, algorithm/acceptance details and development guidance into `docs/`.
-- Reorganize Python modules into `io`, `signals`, `calibration` and `calculation`, with shared `configuration.py`, physical constants and Arrow adaptation at package level.
-  Remove `gnss_tec.tec.*` and `gnss_tec.rinex.*` import paths without compatibility aliases.
-- Add keyword-only `read_rinex_obs(..., include_lli=False)`: default wide/long outputs omit LLI and native LLI buffers.
-  Opt in for raw UInt8/null indicators; observations, epoch flags and retained event metadata are unchanged.
-  `compute_tec_from_rinex` explicitly opts in for QC.
-  DataFrame/Parquet callers should retain LLI when recorded lock/half-cycle information is required.
-- Rename `TECConfig.retain_intermediate` to `retain_diagnostics` without an alias.
-  Use None, a list/tuple of supported diagnostic names, or 'all'.
-  Default output includes azimuth/elevation and hides epoch/LLI/QC/calibration fields.
-  'all' retains rejected rows with null public TEC and reasons.
-  All modes omit private leveling/weight/bias-interval fields; unsupported selections raise.
-  `mw` remains selectable in wide-lane cycles; diagnostic retention choices do not change QC or calibration computation.
-- Convert structured package docstrings to NumPy style and document TECConfig defaults, units, validation and output behavior at class and field level.
+- Require Python 3.12+, Polars >=1.40.0,<3 and SciPy 1.16+, with support for both Polars 1.x and 2.x. Source builds require Rust 1.88+.
+- Rename `calc_tec_from_df`, `calc_tec_from_parquet` and `calc_tec_from_rinex` to `compute_tec`, `compute_tec_from_parquet` and `compute_tec_from_rinex`. The old entry points and `gnss_tec.tec.*`/`gnss_tec.rinex.*` module paths are removed; use package-level imports.
+- Make `read_rinex_obs` return raw observations without navigation input or geometry calculation. Use `compute_az_el` separately or pass `nav_fn` to TEC calculation.
+- Make LLI output opt-in with `read_rinex_obs(..., include_lli=True)`; direct RINEX-to-TEC calculation enables it automatically.
+- Replace `TECConfig.retain_intermediate` with `retain_diagnostics` for selecting diagnostic columns. Default output includes satellite angles; use `'all'` to inspect rejected rows with null TEC and rejection reasons.
+- Default `TECConfig.cycle_slip_mode` to `'repair'`, using GF/MW detection and temporal continuity correction while preserving raw observations. Correction can also align physical TEC steps; use `'detect'` or `'basic'` to disable numerical continuity correction.
+- Reduce RINEX decoding and repeated satellite-geometry overhead.
+- Limit prebuilt wheels to ordinary Python on Linux x86_64/aarch64, Windows x64 and macOS x86_64/arm64; exclude free-threaded and 32-bit builds. Add installed wheel and source-distribution checks before PyPI publication.
+- Remove the `custom-alloc` build feature.
 
 ### Fixed
 
-- Reject unsupported RINEX header updates before returning observations decoded under stale observation order, scale/phase/time declarations or receiver geometry.
-  COMMENT-only and empty events retain their behavior; significant untimed updates also raise instead of silently reusing the initial header.
-- Reject numerically unidentifiable MSTD/LSQ receiver-bias estimates, failed solvers and MSTD bound solutions with actionable warnings and null calibrated TEC.
-  Redundant LSQ nuisance columns alone do not invalidate an identifiable receiver coefficient.
-- Filter unhealthy and expired broadcast ephemerides before nearest-record selection, preserving valid alternative records.
-  Missing eligible ephemerides yield unavailable geometry and cannot produce accepted TEC.
-- Declare timezone data as a Windows runtime dependency so UTC timestamps can be converted to Python objects without a system IANA timezone database.
-- Keep flag-6 cycle-slip counts out of wide/long observation values and preserve timestamped slip payloads in event metadata, independently of LLI output.
-- Consume and omit harmless blank-epoch special events without inheriting timestamps or receiver state, including RINEX 2 satellite/observation continuations and supported gzip/Hatanaka and multi-file input paths.
-- Recognize fixed-column COMMENT records before epoch parsing, including RINEX 3 comments whose free text starts with `>`.
-- Prefer usable signal pairs before preference ranking, with half-cycle/SNR eligibility and retained rejection diagnostics when no usable pair exists.
-  Reconsider null-SNR candidates when selected groups change and resolve cyclic group assignments conservatively.
-  Loss-of-lock boundaries and final grouped SNR acceptance remain unchanged.
-- Preserve continuous phase across COMMENT-only/empty flag-4 and external flag-5 events; conservatively split on power/site/slip and other flag-4 events.
-  Keep timestamped event metadata and deduplicate reset epochs.
+- Recover skipped RINEX 2 observations and correct special-event handling in RINEX/Hatanaka files, avoiding overwritten measurements and false arc breaks. Reject unsupported dynamic header changes instead of silently using stale observation or receiver metadata.
+- Fix sampling inference and chronological ordering for unordered and fractional-rate observations.
+- Preserve per-file receiver positions and station-specific quality control in multi-day/multi-station processing, and correct IPP longitudes.
+- Select usable signal pairs before applying preferences, respecting SNR and half-cycle indicators.
+- Fix UTF-8 Bias-SINEX decoding and apply time-valid code biases before leveling; reject overlapping or unsupported bias products.
+- Reject unidentifiable or failed MSTD/LSQ receiver-bias estimates, returning null calibrated TEC.
+- Exclude unhealthy or expired broadcast ephemerides from geometry and TEC calculations.
+- Fix UTC timestamp conversion on Windows installations without system timezone data.
 
 ## [0.4.2](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.4.2) - 2026-05-07
 
