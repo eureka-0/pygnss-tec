@@ -27,6 +27,11 @@ Commit IDs identify the delivered changes; regression details and former task fi
 | T028 | Simplify TEC output and diagnostic columns | P2 | done | — | 2026-10-14 | `retain_diagnostics` replaces the old option; geometry is always public, diagnostics are selectable and leveling/bias state remains private. Commit `992a7e9`. |
 | T029 | Migrate Python docstrings to NumPy style | P3 | done | — | 2026-10-14 | Package/TECConfig docstrings and AGENTS.md convention updated. Class/field hover exposes descriptions; constructor-keyword hover remains limited to type/default. Commit `992a7e9`. |
 | T023 | Extract focused modules behind compatible entry points | P3 | done | — | 2026-10-15 | Approved `io`/`signals`/`calibration`/`calculation` layout implemented; six common exports retained and old deep-import paths removed without aliases. Commit `98c849c`. |
+| T003 | Reuse navigation and unique epoch/SV geometry | P1 | done | — | 2026-10-17 | Native navigation ownership, indexed Arrow queries, standalone angles and direct TEC API migration delivered without old aliases; matched geometry/TEC, clean-wheel, docs and local performance checks passed. Commit `9bc9671`. |
+
+T003 preserves the existing navigation selection rules; health/validity/age safeguards remain T009.
+Wider default reads retain separate timing/memory costs, and the complete stage/high-rate matrix remains T001.
+The completed task plan and detailed acceptance record are recoverable from commit `9bc9671`.
 
 ## Completed Reader and Observation-QC Tasks
 
@@ -57,4 +62,4 @@ Permanent regressions remain in `tests/`, with published measurements in [benchm
 | T030 | Correct cycle slips for scientific TEC continuity | P1 | done | — | 2026-10-15 | Delivered default working-phase and independent final-STEC alignment under the approved temporal-continuity criterion, retaining raw observations, basic/detect modes and diagnostic offsets. It does not resolve carrier integers or identify physical causes and can align genuine physical steps. |
 
 These records close the evaluated scope without completing M1.
-T031/T032 retain effective header state and targeted flag-6 semantics; T006/T007 retain estimator and leveling robustness, T003/T004 retain navigation reuse and bounded input processing, and T020 retains broader independent reference assets.
+T031/T032 retain effective header state and targeted flag-6 semantics; T006/T007 retain estimator and leveling robustness, T009 retains navigation validity, T004 retains bounded input processing, and T020 retains broader independent reference assets.
