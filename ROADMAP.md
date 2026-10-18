@@ -7,19 +7,34 @@ Improve scalability, signal/product coverage and workflows without weakening the
 
 ## Current Focus
 
-- **Main goal:** complete M1's remaining observation-state, calibration and geometry contracts.
-- **Underway:** no task is currently in progress.
-- **Delivered this round:** T003 adds reusable native navigation, independent azimuth/elevation and direct TEC entry-point renaming, with matched validation below.
-- **Delivered:** R05, T005 and T030 join the [archived deliveries](docs/roadmap-history.md#completed-cycle-slip-evaluation-and-continuity-tasks).
-  Detection evaluation and default final-STEC temporal alignment are complete within their recorded scope; M1 remains open.
-- **Recommended next round:** begin T031 with the header-field support matrix and effective-state design review, then implement its reviewed scope.
-  T032 follows the effective-header contract to target flag-6 evidence by satellite and phase signal.
-  Both plans require review of the state/event semantics before implementation.
-- **Independent candidates:** T006 addresses receiver-bias identifiability and explicit failures; T007 addresses missing-SNR policy and robust leveling.
-  T001 can extend the completed performance work into consistent stage/RSS baselines; T004 retains bounded input processing.
-- **Constraints:** blank-epoch events remain omitted, raw observations remain unchanged, and ordinary reader calls keep `include_lli=False` while RINEX-to-TEC opts in.
+- **Main goal:** qualify the exact 0.5.0 distribution artifacts through T025 before publication.
+  The gate implementation is present, but the candidate still lacks hosted installation/runtime results.
+- **Delivered safeguards:** T031 rejects unsupported significant header updates, T006 rejects unidentifiable receiver estimates, and T009 checks navigation eligibility before nearest selection.
+  These are partial deliveries; full header-state application, uncertainty/performance work and navigation diagnostics/reference analysis remain open, so these tasks cannot be archived yet.
+- **Next round — T025:** land the reviewed manual workflow on the default branch, select the candidate commit and run the non-publishing matrix.
+  Validate five ordinary 64-bit wheels and one sdist under both supported consumer configurations, then review the exact-artifact hashes and failure gates using the [execution plan](docs/tasks/T025.md#implementation-plan).
+  Resolve failures and collect missing evidence before changing task or release-check completion.
+- **After qualification:** prepare T006's uncertainty/performance contract and T031's field-support/state model for review; they have no technical dependency on each other.
+  T009 separately retains source/merge diagnostics and independent reception-time approximation analysis.
+  T032 still requires effective-header context from T031; rejection alone does not satisfy that dependency.
+- **Independent later work:** T007/T008, T001 stage/RSS baselines and T004 bounded input processing can be scoped separately without becoming release prerequisites.
+  No new global execution order or task dependency is implied.
+- **Archived deliveries:** navigation reuse, standalone angles, direct TEC API migration and earlier scientific/API work remain in [history](docs/roadmap-history.md).
+- **Constraints:** harmless blank-epoch events remain omitted; unsafe untimed header updates raise without inventing an epoch.
+  Raw observations remain unchanged, and ordinary reader calls keep `include_lli=False` while RINEX-to-TEC opts in.
   The default `repair` mode provides temporal alignment, not certified carrier-integer recovery or natural-event classification.
-  Unreviewed header/event semantics keep T031/T032 in backlog; they are planning gates, not blockers for independent tasks.
+
+## 0.5.0 Release Checks
+
+- [x] **T031:** scientifically significant header changes are explicitly rejected before misleading observations or geometry are returned; harmless COMMENT events retain their behavior.
+- [x] **T006:** unsupported or unidentifiable receiver-bias estimates fail explicitly with null calibrated products, while identifiable controls retain their known bias and TEC.
+- [x] **T009:** queries without eligible broadcast ephemerides cannot produce accepted TEC from expired navigation; valid selection/tie and propagation behavior remains checked.
+- [ ] **T025:** Python/Rust manifests, lockfiles, tag, release notes and artifact metadata agree on 0.5.0; publication requires successful validation of the exact artifacts and the scientific safeguards above.
+
+Task design and release-workflow wiring can proceed independently.
+Publication requires every release check, rather than administrative completion of each task's broader scope.
+The release matrix must be exercised without publication first; this planning round does not authorize a workflow run, release tag or PyPI upload.
+The reviewed 0.5.0 matrix includes Linux x86_64/aarch64, Windows x64 and macOS x86_64/arm64 ordinary CPython ABI3 wheels; free-threaded and 32-bit targets are excluded.
 
 ## Milestones
 
@@ -30,7 +45,7 @@ Milestones group verifiable outcomes across workstreams; related task lists do n
 | M1 — Scientific Reliability | Trustworthy observations, ambiguity state and calibration/QC meaning | Existing reader/event regressions remain valid; detection sensitivity and continuity correction have independent validation under their declared contracts, with unresolved detections and physical-interpretation limits explicit. Supported timestamped header changes and targeted slip evidence follow reviewed semantics. Receiver-estimation degeneracies and leveling outliers are handled; product/diagnostic meaning cannot turn unsupported or failed calibration into a zero correction. Geometry/navigation assumptions are explicit and independently checked. | R01–R05, T006–T009, T015, T027–T028, T030–T032 |
 | M2 — Scalable Processing | Measured, scientifically equivalent processing across input sizes | Repeatable stage and isolated-process RSS baselines cover 1/30 s, single/multiple days and multiple stations. Report throughput, RSS, retention/QC changes and independent scientific residuals together; demonstrate bounded input memory without chunk-boundary TEC steps and measured optimization gains. Set regression budgets from stable measurements; a Polars engine switch alone does not qualify as streaming input. | T001–T005, T010 |
 | M3 — Extended GNSS & Product Support | Explicit supported signal modes and reproducible external/derived products | Each released signal pair has frequency/phase/bias tests and independent known-TEC/orbit references, including FDMA channels and BDS GEO/IGSO where advertised. Bias retrieval avoids overlap/datum mixing; IONEX comparisons preserve map semantics; derived indices enforce sampling and arc requirements. | T011–T014, T017 |
-| M4 — Reproducible Workflows & Release Readiness | Traceable user workflows and validated distribution artifacts | Exports preserve units/time/coordinates/QC/calibration metadata; CLI/library results agree. Scientific/error branches and supported compatibility jobs are checked; scientific examples document assumptions and reproduce outputs, and Python docstrings follow NumPy conventions. Publishing waits for successful clean installation and minimal RINEX-to-TEC checks of the actual artifacts, with free-threaded artifacts exercised separately. | T018–T022, T024–T026, T029 |
+| M4 — Reproducible Workflows & Release Readiness | Traceable user workflows and validated distribution artifacts | Exports preserve units/time/coordinates/QC/calibration metadata; CLI/library results agree. Scientific/error branches and supported compatibility jobs are checked; scientific examples document assumptions and reproduce outputs, and Python docstrings follow NumPy conventions. Publishing waits for successful clean installation and minimal RINEX-to-TEC checks of the actual artifacts; any advertised free-threaded artifacts are exercised separately. | T018–T022, T024–T026, T029 |
 
 ## Active Tasks
 
@@ -41,11 +56,13 @@ Task files hold implementation plans, acceptance requirements and handoff notes.
 
 | ID | Task | Priority | Status | Dependencies | Details |
 |---|---|---|---|---|---|
-| T006 | Stabilize and accelerate receiver-bias estimation | P1 | backlog | — | [Plan](docs/tasks/T006.md) |
+| T031 | Apply timestamped RINEX header updates | P0 | backlog | — | [Plan](docs/tasks/T031.md) |
+| T006 | Stabilize and accelerate receiver-bias estimation | P0 | backlog | — | [Plan](docs/tasks/T006.md) |
+| T009 | Validate navigation selection and merge failures | P1 | backlog | — | [Plan](docs/tasks/T009.md) |
 | T007 | Make SNR filtering and leveling robust | P1 | backlog | — | [Plan](docs/tasks/T007.md) |
 | T008 | Separate geometric IPPs from mapping models | P1 | backlog | — | [Plan](docs/tasks/T008.md) |
-| T009 | Validate navigation selection and merge failures | P1 | backlog | — | [Plan](docs/tasks/T009.md) |
 | T016 | Offer an optional causal Hatch mode | P2 | backlog | — | [Plan](docs/tasks/T016.md) |
+| T032 | Interpret flag-6 events by satellite and phase signal | P2 | backlog | T031 | [Plan](docs/tasks/T032.md) |
 
 ### Architecture & Performance
 
@@ -73,18 +90,16 @@ Task files hold implementation plans, acceptance requirements and handoff notes.
 |---|---|---|---|---|---|
 | T018 | Standardize export metadata and add Xarray/NetCDF | P2 | backlog | — | [Plan](docs/tasks/T018.md) |
 | T019 | Add a CLI that delegates to the library | P2 | backlog | — | [Plan](docs/tasks/T019.md) |
-| T031 | Apply timestamped RINEX header updates | P1 | backlog | — | [Plan](docs/tasks/T031.md) |
-| T032 | Interpret flag-6 events by satellite and phase signal | P2 | backlog | T031 | [Plan](docs/tasks/T032.md) |
 
 ### Engineering & Release
 
 | ID | Task | Priority | Status | Dependencies | Details |
 |---|---|---|---|---|---|
+| T025 | Gate publishing on installed-artifact validation | P1 | in_progress | — | [Plan](docs/tasks/T025.md) |
 | T020 | Expand independent scientific regression assets | P3 | backlog | — | [Plan](docs/tasks/T020.md) |
 | T021 | Add Rust failure-path tests and parser fuzzing | P3 | backlog | — | [Plan](docs/tasks/T021.md) |
 | T022 | Tighten typing and schema contracts | P3 | backlog | — | [Scope & acceptance](#t022-tighten-typing-and-schema-contracts) |
 | T024 | Measure coverage and maintain compatibility matrices | P3 | backlog | — | [Scope & acceptance](#t024-measure-coverage-and-maintain-compatibility-matrices) |
-| T025 | Gate publishing on installed-artifact validation | P3 | backlog | — | [Plan](docs/tasks/T025.md) |
 | T026 | Document scientific assumptions and operating limits | P3 | backlog | — | [Scope & acceptance](#t026-document-scientific-assumptions-and-operating-limits) |
 
 ### Inline task specifications
@@ -121,11 +136,8 @@ Follow the NumPy-style convention delivered by T029; this task owns the broader 
 
 ## Recently Completed
 
-| ID | Task | Priority | Status | Dependencies | Completed | Details |
-|---|---|---|---|---|---|---|
-| T003 | Reuse navigation and unique epoch/SV geometry | P1 | done | — | 2026-10-17 | [Outcome](docs/tasks/T003.md): native navigation ownership, Arrow queries, independent angles and direct TEC API migration; matched geometry/TEC, clean-wheel and local performance checks passed. |
-
-Earlier completed deliveries are recorded in [history](docs/roadmap-history.md).
+No completed tasks are awaiting archival.
+Completed deliveries are recorded in [history](docs/roadmap-history.md).
 
 ## Conventions
 

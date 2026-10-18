@@ -29,6 +29,37 @@ TEC results always use UTC.
 Parquet preserves the Polars timezone information, while `header.to_metadata()` preserves the accompanying RINEX metadata.
 Fractional sampling intervals retain their precision and are not rounded to integer seconds.
 
+## Header changes and broadcast navigation
+
+The reader does not apply dynamic observation headers.
+Flag-3/4 header records other than COMMENT, including unknown or malformed labels, raise `ValueError` before observations are returned.
+Changes to observation order/count, scale/phase/wavelength conventions, time declarations and receiver/site/antenna metadata cannot silently reuse the initial header.
+Recognized significant header fields in other special events are also rejected.
+Errors identify the source file, event epoch (or an untimed event) and field label.
+Split or normalize these files with the correct effective headers before processing.
+COMMENT-only and empty events retain their existing behavior; harmless blank-epoch events are consumed without inventing a timestamp or receiver state.
+The same checks apply to gzip/Hatanaka, wide/long layouts, both LLI settings and multi-file input.
+
+Broadcast selection filters unhealthy or expired records before selecting the nearest reference epoch.
+Equal-distance and duplicate eligible records retain source-order precedence; an invalid nearest record cannot hide an eligible alternative.
+Absolute time differences use the constellation's broadcast time scale, without reducing a year-old difference modulo one week.
+
+| Broadcast system | Maximum absolute difference from toe | Additional rules |
+|---|---|---|
+| GPS | 2 hours, inclusive | A positive RINEX fit interval in hours narrows the limit to half that interval; a missing/zero interval retains the 2-hour cap. |
+| BeiDou | 6 hours, inclusive | toe uses BDT and the broadcast week. |
+| Galileo | 3 hours, inclusive | All broadcast health/data-validity bits must be clear because geometry has no signal selector. |
+| GLONASS | 900 seconds from the broadcast reference epoch, inclusive | Retain the validated state-vector propagation window. |
+| QZSS, SBAS and unsupported toe representations | Unavailable | Propagation is not supported by the current implementation. |
+
+Kepler records require finite toe in `[0, 604800)` and a parsed broadcast week; absent health or invalid validity fields make a record ineligible.
+GPS/BeiDou/GLONASS health follows the parsed broadcast flags.
+The age caps follow the pinned parser's policies, narrowed by the supported fit rules above; they do not certify orbit accuracy throughout each interval.
+See [RINEX 3.05](https://files.igs.org/pub/data/format/rinex305.pdf) for field meanings and [RTKLIB](https://github.com/tomojitakasu/RTKLIB/blob/master/src/rtklib.h) for the corresponding constellation-specific age caps.
+Retrospective selection permits future reference epochs inside these windows and does not assert that a message was already available in real time.
+When no eligible record exists, `compute_az_el` returns null angles and the TEC path rejects those rows; requesting all diagnostics retains them with null public TEC.
+`NavigationData.epoch_range` describes file coverage rather than per-record validity.
+
 ## Quality and continuity
 
 LLI records loss-of-lock and phase-state information from the original RINEX observations.
@@ -100,6 +131,12 @@ Request `calibration_status` to check which corrections were applied:
 
 Results with absent or incomplete bias corrections remain relative or partially corrected TEC products.
 Receiver bias estimation follows satellite correction, and a failed estimate is never treated as zero bias.
+MSTD requires the existing simultaneous night-time support and numerically distinct within-epoch inverse mapping factors; flat objectives, failed optimization and solutions at the +/-500 TECU search bounds fail explicitly.
+LSQ scales its nuisance basis and checks whether the receiver coefficient is distinguishable from that basis using SVD.
+Redundant nuisance columns alone do not invalidate an independently identifiable receiver coefficient; roundoff-only columns are not amplified into artificial information.
+The relative separation floor is the square root of floating-point machine epsilon after normalization; the SVD rank tolerance also accounts for matrix size.
+These are numerical identifiability checks, not a statistical uncertainty estimate or independent validation of the ionospheric model.
+Failed estimates emit a `RuntimeWarning` naming the method and reason, retain null `rx_bias` and public TEC under `receiver_estimation_failed`, and cannot be recovered as accepted products by final continuity alignment.
 See the [configuration guide](configuration.md#calibration) for receiver bias options and how missing products are handled.
 
 ## Mapping assumptions

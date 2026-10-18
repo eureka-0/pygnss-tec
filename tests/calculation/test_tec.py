@@ -134,8 +134,10 @@ def test_calc_tec_v2_without_bias_includes_recovered_observations(
     ).collect(engine="in-memory")
 
     assert_valid_tec_frame(df, corrected=False)
-    # rinex 0.22 skipped satellite records and produced only 9,166 TEC rows.
-    assert df.height == 10933
+    # The reader recovers records skipped by rinex 0.22 (9,166 rows), while
+    # broadcast health now excludes G01 (584 previously accepted TEC rows).
+    assert df.height == 10349
+    assert "G01" not in df["prn"].to_list()
 
 
 @pytest.mark.parametrize("method", ["mstd", "lsq"])

@@ -106,6 +106,7 @@ fn descriptor(line: &str, version: u8, scale: TimeScale) -> io::Result<Option<De
 /// declared framing, so their payloads cannot be mistaken for new epochs.
 pub(crate) struct ObservationReader<R> {
     reader: R,
+    source: String,
     decoder: Option<Decompressor>,
     version: u8,
     scale: TimeScale,
@@ -119,10 +120,11 @@ pub(crate) struct ObservationReader<R> {
 }
 
 impl<R: BufRead> ObservationReader<R> {
-    pub(crate) fn new(reader: R, header: &Header) -> Self {
+    pub(crate) fn new(reader: R, header: &Header, source: &str) -> Self {
         let obs = header.obs.as_ref().expect("observation header");
         Self {
             reader,
+            source: source.to_string(),
             decoder: obs.crinex.as_ref().map(|crinex| {
                 Decompressor::new(
                     crinex.version.major >= 3,
@@ -228,6 +230,58 @@ impl<R: BufRead> ObservationReader<R> {
             let line = self
                 .line(false)?
                 .ok_or_else(|| invalid("Truncated RINEX epoch payload"))?;
+            if (2..=5).contains(&record.flag) {
+                let label = line.get(60..).unwrap_or("").trim();
+                // Flags 3/4 contain new header information. Only comments have
+                // no effect on the initial decoding/receiver state. Recognize
+                // significant header records even in other special blocks.
+                let header_update = matches!(record.flag, 3 | 4)
+                    || matches!(
+                        label,
+                        "SYS / # / OBS TYPES"
+                            | "# / TYPES OF OBSERV"
+                            | "WAVELENGTH FACT L1/2"
+                            | "SYS / SCALE FACTOR"
+                            | "SYS / PHASE SHIFT"
+                            | "SYS / DCBS APPLIED"
+                            | "SYS / PCVS APPLIED"
+                            | "GLONASS SLOT / FRQ #"
+                            | "GLONASS COD/PHS/BIS"
+                            | "TIME OF FIRST OBS"
+                            | "TIME OF LAST OBS"
+                            | "LEAP SECONDS"
+                            | "RCV CLOCK OFFS APPL"
+                            | "INTERVAL"
+                            | "MARKER NAME"
+                            | "MARKER NUMBER"
+                            | "MARKER TYPE"
+                            | "REC # / TYPE / VERS"
+                            | "ANT # / TYPE"
+                            | "APPROX POSITION XYZ"
+                            | "ANTENNA: DELTA H/E/N"
+                            | "ANTENNA: DELTA X/Y/Z"
+                            | "ANTENNA: PHASECENTER"
+                            | "ANTENNA: B.SIGHT XYZ"
+                            | "ANTENNA: ZERODIR AZI"
+                            | "ANTENNA: ZERODIR XYZ"
+                            | "CENTER OF MASS: XYZ"
+                            | "RINEX VERSION / TYPE"
+                    );
+                if header_update && label != "COMMENT" {
+                    let epoch = record
+                        .epoch
+                        .map_or_else(|| "untimed event".to_string(), |epoch| epoch.to_string());
+                    let label = if label.is_empty() {
+                        "<missing/malformed label>"
+                    } else {
+                        label
+                    };
+                    return Err(invalid(format!(
+                        "Unsupported RINEX header update in {} at {epoch} (flag {}): {label}; split or normalize the file with an effective header before reading",
+                        self.source, record.flag
+                    )));
+                }
+            }
             self.pending.extend_from_slice(line.as_bytes());
         }
         Ok(Some((record.epoch, record.flag)))
@@ -269,7 +323,7 @@ pub(crate) fn events(path: &str) -> PyResult<Vec<EpochEvent>> {
     let mut reader = BufReader::new(rinex_io::open(path)?);
     let header =
         Header::parse(&mut reader).map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let mut reader = ObservationReader::new(reader, &header);
+    let mut reader = ObservationReader::new(reader, &header, path);
     let mut result = Vec::new();
     while let Some((epoch, flag)) = reader
         .next_record()

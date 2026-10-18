@@ -256,3 +256,44 @@ def test_failed_receiver_estimation_is_not_a_zero_correction(monkeypatch):
     assert result["calibration_status"].unique().to_list() == [
         "receiver_estimation_failed"
     ]
+
+
+@pytest.mark.parametrize("method", ["mstd", "lsq"])
+@pytest.mark.parametrize(
+    "support", ["constant_mapping", "single_sv", "one_epoch", "near_degenerate"]
+)
+def test_unidentifiable_receiver_estimates_null_calibrated_products(
+    monkeypatch, method, support
+):
+    mf = 1 / np.sqrt(1 - (6378137.0 / 6778137.0 * np.cos(np.deg2rad(60))) ** 2)
+    header, obs = physical_observations(np.full(20, 20 * mf))
+    obs = obs.with_columns(pl.Series("C2W", obs["C2W"].to_numpy() + 5 / K))
+    second = obs.with_columns(pl.lit("G02").alias("prn"))
+    if support == "near_degenerate":
+        second = second.with_columns(pl.lit(60 + 1e-10).alias("elevation"))
+    data = obs if support == "single_sv" else pl.concat([obs, second])
+    if support == "one_epoch":
+        data = data.filter(pl.col("time") == pl.col("time").min())
+    product = bias_rows([datetime(2024, 1, 10)], [datetime(2024, 1, 11)], [0.0])
+    product = pl.concat(
+        [product, product.with_columns(pl.lit("G02").cast(pl.Categorical).alias("prn"))]
+    )
+    monkeypatch.setattr(tc, "read_bias", lambda _: product.lazy())
+    with pytest.warns(RuntimeWarning, match="Receiver bias estimation.*failed"):
+        result = gt.compute_tec(
+            data, header, "unused", TECConfig(rx_bias=method, retain_diagnostics="all")
+        ).collect()
+    assert result.height == data.height
+    for column in ("rx_bias", "stec", "stec_dcb_corrected", "vtec"):
+        assert result[column].null_count() == result.height
+    assert not result["qc_valid"].any()
+    assert result["qc_reason"].str.contains("receiver_estimation_failed").all()
+    assert result["calibration_status"].unique().to_list() == [
+        "receiver_estimation_failed"
+    ]
+    # The default projection must not let failed calibration become accepted TEC.
+    with pytest.warns(RuntimeWarning, match="failed"):
+        default = gt.compute_tec(
+            data, header, "unused", TECConfig(rx_bias=method)
+        ).collect()
+    assert default.is_empty()

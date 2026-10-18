@@ -258,7 +258,7 @@ def test_untimed_events_are_consumed_without_values_or_state(
     skipped += _event_record(version, 2, 0, seconds=None)
     skipped += (
         _event_record(version, 3, 1, seconds=None)
-        + f"{'Omitted site':<60}MARKER NAME\n"
+        + f"{'Omitted site comment':<60}COMMENT\n"
     )
     skipped += (
         _event_record(version, 4, 1, seconds=None) + f"{'Skipped comment':<60}COMMENT\n"

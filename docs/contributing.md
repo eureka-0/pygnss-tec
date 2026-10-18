@@ -73,6 +73,7 @@ Other style conventions:
 
 When making changes, it is important to run tests and validate your code to ensure that it works as expected and does not introduce regressions.
 This project uses [pytest](https://github.com/pytest-dev/pytest) for Python tests and the built-in Rust test framework for Rust code.
+The full Python suite requires the sample files in the repository's `data/` directory, which is excluded from source distributions.
 
 Before submitting a pull request, please run the following commands to ensure that all tests pass:
 

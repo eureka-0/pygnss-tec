@@ -39,7 +39,7 @@ class NavigationData:
 
     @property
     def n_ephemerides(self) -> int:
-        """Number of records after per-satellite reference-epoch deduplication."""
+        """Number of distinct per-satellite reference epochs."""
         return self._handle.n_ephemerides
 
     @property
