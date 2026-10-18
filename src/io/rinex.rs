@@ -64,7 +64,7 @@ fn read(path: &str) -> PyResult<Rinex> {
     let mut header =
         Header::parse(&mut reader).map_err(|error| PyIOError::new_err(error.to_string()))?;
     let (record, comments) = if header.obs.is_some() {
-        let mut body = ObservationReader::new(reader, &header);
+        let mut body = ObservationReader::new(reader, &header, path);
         // The framed body is already decompressed. Restore the original header
         // after parsing so public file metadata retains its original meaning.
         let compact = header.obs.as_mut().and_then(|obs| obs.crinex.take());

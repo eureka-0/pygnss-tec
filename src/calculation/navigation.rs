@@ -27,9 +27,15 @@ struct NavigationRecord {
     utc: Duration,
     source_order: usize,
     orbit: Orbit,
+    validity: Option<(Epoch, Duration)>,
 }
 
 impl NavigationRecord {
+    fn eligible(&self, epoch: Epoch) -> bool {
+        self.validity
+            .is_some_and(|(reference, limit)| (epoch - reference).abs() <= limit)
+    }
+
     fn position(&self, satellite: SV, epoch: Epoch) -> Option<[f64; 3]> {
         match &self.orbit {
             Orbit::Glonass(state) => state.as_ref()?.position((epoch - self.epoch).to_seconds()),
@@ -39,6 +45,61 @@ impl NavigationRecord {
             Orbit::Unsupported => None, // No validated SBAS propagation is available.
         }
     }
+}
+
+fn validity(ephemeris: &Ephemeris, satellite: SV, toc: Epoch) -> Option<(Epoch, Duration)> {
+    if !matches!(
+        satellite.constellation,
+        Constellation::GPS
+            | Constellation::BeiDou
+            | Constellation::Galileo
+            | Constellation::Glonass
+    ) {
+        return None;
+    }
+    // Galileo is not implemented by upstream sv_healthy. Require all broadcast
+    // health/data-validity bits clear because this geometry API has no signal selector.
+    let healthy = if satellite.constellation == Constellation::Galileo {
+        ephemeris
+            .orbits
+            .get("health")
+            .and_then(|item| item.as_galileo_health_flag())
+            .is_some_and(|health| health.is_empty())
+    } else {
+        ephemeris.sv_healthy()
+    };
+    if !healthy {
+        return None;
+    }
+    if satellite.constellation == Constellation::Glonass {
+        return Some((toc, Duration::from_seconds(900.0)));
+    }
+    // Check before toe(): upstream converts the floating field to unsigned ns.
+    let toe_seconds = ephemeris.get_orbit_f64("toe")?;
+    let week = ephemeris.get_orbit_f64("week")?;
+    if !toe_seconds.is_finite()
+        || !(0.0..604800.0).contains(&toe_seconds)
+        || !week.is_finite()
+        || week < 0.0
+        || week.fract() != 0.0
+    {
+        return None;
+    }
+    let reference = ephemeris.toe(satellite)?;
+    let mut limit = Ephemeris::validity_duration(satellite.constellation)?;
+    if satellite.constellation == Constellation::GPS
+        && let Some(fit) = ephemeris.get_orbit_f64("fitInt")
+    {
+        if !fit.is_finite() || fit < 0.0 {
+            return None;
+        }
+        // RINEX GPS fit interval is hours; zero/omitted retains our age cap.
+        // Longer intervals do not relax the two-hour limit.
+        if fit > 0.0 {
+            limit = limit.min(Duration::from_hours(fit / 2.0));
+        }
+    }
+    Some((reference, limit))
 }
 
 fn replenish_perturbations(ephemeris: &Ephemeris) -> Ephemeris {
@@ -82,6 +143,7 @@ fn index_records(
             utc: key.epoch.to_duration_in_time_scale(TimeScale::UTC),
             source_order,
             orbit,
+            validity: validity(ephemeris, key.sv, key.epoch),
         });
     }
     for satellite_records in records.values_mut() {
@@ -90,30 +152,40 @@ fn index_records(
     records
 }
 
-fn sort_records(records: &mut Vec<NavigationRecord>) {
+fn sort_records(records: &mut [NavigationRecord]) {
     // Stable sorting retains the upstream first record at duplicate timestamps.
     records.sort_by_key(|record| record.utc);
-    records.dedup_by_key(|record| record.utc);
+    // Keep duplicates until eligibility is known. An invalid first record must
+    // not hide a valid alternative with the same reference epoch.
 }
 
-fn nearest_record(records: &[NavigationRecord], utc: Duration) -> Option<&NavigationRecord> {
+fn nearest_record(records: &[NavigationRecord], epoch: Epoch) -> Option<&NavigationRecord> {
+    let utc = epoch.to_duration_in_time_scale(TimeScale::UTC);
     let next = records.partition_point(|record| record.utc < utc);
-    let before = next.checked_sub(1).map(|index| &records[index]);
-    let after = records.get(next);
-    match (before, after) {
-        (Some(before), Some(after)) => {
-            // Preserve min_by_key's first-in-source-order choice for equal distance.
-            // UTC durations match the original subtraction for the UTC input epochs.
-            let before_key = ((utc - before.utc).abs(), before.source_order);
-            let after_key = ((after.utc - utc).abs(), after.source_order);
-            Some(if before_key <= after_key {
-                before
-            } else {
-                after
-            })
+    let before = first_eligible_epoch(records[..next].iter().rev(), epoch);
+    let after = first_eligible_epoch(records[next..].iter(), epoch);
+    before
+        .into_iter()
+        .chain(after)
+        .min_by_key(|record| ((utc - record.utc).abs(), record.source_order))
+}
+
+fn first_eligible_epoch<'a>(
+    records: impl Iterator<Item = &'a NavigationRecord>,
+    epoch: Epoch,
+) -> Option<&'a NavigationRecord> {
+    let mut found: Option<&NavigationRecord> = None;
+    for record in records {
+        if found.is_some_and(|best| best.utc != record.utc) {
+            break;
         }
-        (before, after) => before.or(after),
+        if record.eligible(epoch)
+            && found.is_none_or(|best| record.source_order < best.source_order)
+        {
+            found = Some(record);
+        }
     }
+    found
 }
 
 pub(crate) fn record_batch(paths: Vec<String>, input: RecordBatch) -> PyResult<RecordBatch> {
@@ -171,7 +243,9 @@ impl NavigationStore {
         let mut epoch_range: Option<(i64, i64)> = None;
         let mut n_ephemerides = 0;
         for satellite_records in records.values() {
-            n_ephemerides += satellite_records.len();
+            // Keep the public count of distinct per-SV reference epochs, even
+            // though duplicate candidates now remain available for eligibility.
+            n_ephemerides += satellite_records.chunk_by(|a, b| a.utc == b.utc).count();
             // The per-SV index is sorted: only its endpoints can extend the range.
             for record in [satellite_records.first(), satellite_records.last()]
                 .into_iter()
@@ -211,7 +285,7 @@ impl NavigationStore {
                 let position = self
                     .records
                     .get(&satellite)
-                    .and_then(|records| nearest_record(records, epoch.duration))
+                    .and_then(|records| nearest_record(records, epoch))
                     .and_then(|record| record.position(satellite, epoch));
                 let [x, y, z] = position.unwrap_or([f64::NAN; 3]);
                 (x, (y, z))
@@ -290,7 +364,7 @@ mod tests {
                 })
             })
             .collect();
-        let mut records = epochs
+        let mut records: Vec<_> = epochs
             .iter()
             .enumerate()
             .map(|(source_order, &epoch)| NavigationRecord {
@@ -298,6 +372,7 @@ mod tests {
                 utc: epoch.to_duration_in_time_scale(TimeScale::UTC),
                 source_order,
                 orbit: Orbit::Unsupported,
+                validity: Some((origin, Duration::from_seconds(100.0))),
             })
             .collect();
         sort_records(&mut records);
@@ -321,12 +396,46 @@ mod tests {
                 .unwrap()
                 .0;
             assert_eq!(
-                nearest_record(&records, epoch.duration)
-                    .unwrap()
-                    .source_order,
+                nearest_record(&records, epoch).unwrap().source_order,
                 expected
             );
         }
-        assert!(nearest_record(&[], origin.duration).is_none());
+        assert!(nearest_record(&[], origin).is_none());
+    }
+
+    #[test]
+    fn eligibility_precedes_nearest_and_duplicate_selection() {
+        let origin = Epoch::from_gregorian_utc(2024, 1, 10, 0, 0, 0, 0);
+        let mut records: Vec<_> = [(0, None), (0, Some(10.0)), (5, Some(0.0))]
+            .into_iter()
+            .enumerate()
+            .map(|(source_order, (seconds, valid_seconds))| {
+                let epoch = origin + Duration::from_seconds(seconds as f64);
+                NavigationRecord {
+                    epoch,
+                    utc: epoch.to_duration_in_time_scale(TimeScale::UTC),
+                    source_order,
+                    orbit: Orbit::Unsupported,
+                    validity: valid_seconds
+                        .map(|seconds| (origin, Duration::from_seconds(seconds))),
+                }
+            })
+            .collect();
+        sort_records(&mut records);
+        // Unhealthy duplicate and expired nearest cannot hide the valid record.
+        assert_eq!(nearest_record(&records, origin).unwrap().source_order, 1);
+        assert_eq!(
+            nearest_record(&records, origin + Duration::from_seconds(5.0))
+                .unwrap()
+                .source_order,
+            1
+        );
+        for seconds in [-10.0, 10.0] {
+            assert!(nearest_record(&records, origin + Duration::from_seconds(seconds)).is_some());
+            assert!(
+                nearest_record(&records, origin + Duration::from_seconds(seconds * 1.001))
+                    .is_none()
+            );
+        }
     }
 }

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/Eureka-0/pygnss-tec/releases/tag/v0.5.0) - 2026-10-18
+
 ### Added
 
 - Add `read_rinex_nav` and read-only `NavigationData` for reusing native broadcast ephemerides and satellite indexes.
@@ -13,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Publish ordinary CPython ABI3 wheels only for Linux x86_64/aarch64, Windows x64 and macOS x86_64/arm64.
+  Free-threaded Python and 32-bit wheels are excluded from this release.
+  GitHub Actions installs and tests each exact wheel outside the checkout on Python 3.12/Polars 1 and Python 3.14/Polars 2, and separately rebuilds and tests the source archive before publication.
 - Rename `calc_tec_from_df`, `calc_tec_from_parquet` and `calc_tec_from_rinex` to `compute_tec`, `compute_tec_from_parquet` and `compute_tec_from_rinex`, without compatibility aliases.
 - Pass navigation query columns through Arrow rather than Python time/PRN lists, retaining the existing propagation and angle kernels.
 - Keep receiver coordinates before azimuth/elevation in TEC output for both precomputed-angle and RINEX navigation workflows.
@@ -48,9 +53,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Reject unsupported RINEX header updates before returning observations decoded under stale observation order, scale/phase/time declarations or receiver geometry.
+  COMMENT-only and empty events retain their behavior; significant untimed updates also raise instead of silently reusing the initial header.
+- Reject numerically unidentifiable MSTD/LSQ receiver-bias estimates, failed solvers and MSTD bound solutions with actionable warnings and null calibrated TEC.
+  Redundant LSQ nuisance columns alone do not invalidate an identifiable receiver coefficient.
+- Filter unhealthy and expired broadcast ephemerides before nearest-record selection, preserving valid alternative records.
+  Missing eligible ephemerides yield unavailable geometry and cannot produce accepted TEC.
 - Declare timezone data as a Windows runtime dependency so UTC timestamps can be converted to Python objects without a system IANA timezone database.
 - Keep flag-6 cycle-slip counts out of wide/long observation values and preserve timestamped slip payloads in event metadata, independently of LLI output.
-- Consume and omit blank-epoch special events without inheriting timestamps or receiver state, including RINEX 2 satellite/observation continuations and supported gzip/Hatanaka and multi-file input paths.
+- Consume and omit harmless blank-epoch special events without inheriting timestamps or receiver state, including RINEX 2 satellite/observation continuations and supported gzip/Hatanaka and multi-file input paths.
 - Recognize fixed-column COMMENT records before epoch parsing, including RINEX 3 comments whose free text starts with `>`.
 - Prefer usable signal pairs before preference ranking, with half-cycle/SNR eligibility and retained rejection diagnostics when no usable pair exists.
   Reconsider null-SNR candidates when selected groups change and resolve cyclic group assignments conservatively.

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Literal
 
 import numpy as np
 import polars as pl
 from scipy.optimize import lsq_linear, minimize_scalar
+
+
+def _failed_bias(method: str, reason: str) -> float:
+    warnings.warn(
+        f"Receiver bias estimation ({method}) failed: {reason}",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    return np.nan
 
 
 def estimate_rx_bias(
@@ -105,7 +115,18 @@ def _mstd_rx_bias(s: pl.Series) -> float:
         .filter(pl.len().over("time") >= 2)
     )
     if df.height < 10:
-        return np.nan
+        return _failed_bias("mstd", "insufficient simultaneous night-time support")
+
+    sensitivity = df.select(
+        (1 / pl.col("mf") - (1 / pl.col("mf")).mean().over("time")).alias("q")
+    )["q"].to_numpy()
+    inverse_mapping = 1 / df["mf"].to_numpy()
+    if np.linalg.norm(sensitivity) <= np.sqrt(np.finfo(float).eps) * np.linalg.norm(
+        inverse_mapping
+    ):
+        return _failed_bias(
+            "mstd", "unidentifiable bias: flat mapping-factor objective"
+        )
 
     def mean_std(bias: float) -> float:
         corrected = df.with_columns(
@@ -116,19 +137,19 @@ def _mstd_rx_bias(s: pl.Series) -> float:
         return float(value) if value is not None and np.isfinite(value) else np.inf
 
     if not np.isfinite(mean_std(0.0)):
-        return np.nan
+        return _failed_bias("mstd", "nonfinite objective")
     result = minimize_scalar(mean_std, bounds=(-500, 500), method="bounded")
-    return (
-        float(result.x)
-        if result.success and np.isfinite(result.x) and np.isfinite(result.fun)
-        else np.nan
-    )
+    if not result.success or not np.isfinite([result.x, result.fun]).all():
+        return _failed_bias("mstd", "optimizer did not converge to a finite solution")
+    if abs(result.x) >= 500 - 1e-4:
+        return _failed_bias("mstd", "solution reaches the +/-500 TECU search bound")
+    return float(result.x)
 
 
 def _lsq_rx_bias(s: pl.Series) -> float:
     df = s.struct.unnest()
     if df.is_empty():
-        return np.nan
+        return _failed_bias("lsq", "no finite calibration support")
     A = (
         df.with_columns(
             (pl.col("time") - pl.col("time").dt.truncate("1d"))
@@ -174,11 +195,25 @@ def _lsq_rx_bias(s: pl.Series) -> float:
         .to_numpy()
     )
     if not np.isfinite(A).all() or not np.isfinite(b).all():
-        return np.nan
+        return _failed_bias("lsq", "nonfinite design or observations")
+    # Only the receiver coefficient must be identifiable. A rank-deficient
+    # nuisance basis (for example constant IPP latitude) is allowed.
+    scales = np.linalg.norm(A, axis=0)
+    # Do not amplify roundoff-only columns (e.g. cos(pi/2) at equatorial IPPs)
+    # into apparent independent physical information.
+    scales[scales <= np.finfo(float).eps * scales.max()] = 1
+    scaled = A / scales
     try:
-        result = lsq_linear(A, b)
+        u, singular, _ = np.linalg.svd(scaled[:, 1:], full_matrices=False)
+        tolerance = max(scaled.shape) * np.finfo(float).eps * singular[0]
+        basis = u[:, singular > tolerance]
+        receiver = scaled[:, 0]
+        independent = receiver - basis @ (basis.T @ receiver)
+        if np.linalg.norm(independent) <= np.sqrt(np.finfo(float).eps):
+            return _failed_bias("lsq", "unidentifiable receiver coefficient in design")
+        result = lsq_linear(scaled, b)
     except np.linalg.LinAlgError:
-        return np.nan
-    return (
-        float(result.x[0]) if result.success and np.isfinite(result.x).all() else np.nan
-    )
+        return _failed_bias("lsq", "linear algebra decomposition failed")
+    if not result.success or not np.isfinite(result.x).all():
+        return _failed_bias("lsq", "solver did not converge to a finite solution")
+    return float(result.x[0] / scales[0])

@@ -1,174 +1,151 @@
-name: PyPI Publish
+name: Publish
 
 on:
   push:
-    tags:
-      # Trigger on version tags like v1.2.3
-      - v*
+    tags: ["v*"]
+  workflow_dispatch: {}
 
-env:
-  PYTHON_VERSION: "3.14"
-  FREE_THREADED_PYTHON_VERSION: "3.14t"
+permissions:
+  contents: read
 
 jobs:
-  linux:
-    name: Build wheels for Linux
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        target: [x86_64, x86, aarch64, armv7]
-
+  versions:
+    name: Check release versions
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python${{ env.PYTHON_VERSION }}
-          manylinux: manylinux_2_28
+          python-version: "3.12"
+      - name: Check manifests, locks, notes and tag
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py versions --tag "$RELEASE_TAG"
+      - name: Verify release gate failures
+        run: uv run --no-project --python 3.12 --with pytest pytest --noconftest tests/test_release.py -q
 
-      - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python${{ env.FREE_THREADED_PYTHON_VERSION }}
-          manylinux: manylinux_2_28
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v7
-        with:
-          name: wheels-linux-${{ matrix.target }}
-          path: dist
-
-  windows:
-    name: Build wheels for Windows
-    runs-on: windows-latest
-
+  wheels:
+    name: Wheel / ${{ matrix.target }} / ${{ matrix.os }}
+    needs: versions
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
+      fail-fast: false
       matrix:
-        target: [x64, x86]
-
+        include:
+          - { os: ubuntu-24.04, target: x86_64, manylinux: manylinux_2_28 }
+          - { os: ubuntu-24.04-arm, target: aarch64, manylinux: manylinux_2_28 }
+          - { os: windows-2025, target: x64, manylinux: auto }
+          - { os: macos-15-intel, target: x86_64, manylinux: auto }
+          - { os: macos-15, target: aarch64, manylinux: auto }
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v7
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          architecture: ${{ matrix.target }}
-
-      - name: Build wheels
+          python-version: "3.12"
+      - name: Build locked release wheel
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
-
-      - name: Setup Python ${{ env.FREE_THREADED_PYTHON_VERSION }}
-        uses: actions/setup-python@v7
+          args: --release --locked --out dist -i ${{ runner.os == 'Linux' && 'python3.12' || 'python' }}
+          manylinux: ${{ matrix.manylinux }}
+      - name: Validate exact wheel / Python 3.12 / Polars 1
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py validate dist/*.whl --python 3.12 --polars 'polars==1.40.0' --output provenance/python312.json
+      - name: Validate exact wheel / Python 3.14 / Polars 2
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py validate dist/*.whl --python 3.14 --polars 'polars==2.0.0' --output provenance/python314.json
+      - uses: actions/upload-artifact@v7
         with:
-          python-version: ${{ env.FREE_THREADED_PYTHON_VERSION }}
-          architecture: ${{ matrix.target }}
-
-      - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@v1
+          name: wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python${{ env.FREE_THREADED_PYTHON_VERSION }}
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v7
-        with:
-          name: wheels-windows-${{ matrix.target }}
-          path: dist
-
-  macos:
-    name: Build wheels for macOS
-    runs-on: macos-latest
-
-    strategy:
-      matrix:
-        target: [x86_64, aarch64]
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python${{ env.PYTHON_VERSION }}
-
-      - name: Setup Python ${{ env.FREE_THREADED_PYTHON_VERSION }}
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ env.FREE_THREADED_PYTHON_VERSION }}
-
-      - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist -i python${{ env.FREE_THREADED_PYTHON_VERSION }}
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v7
-        with:
-          name: wheels-macos-${{ matrix.target }}
-          path: dist
+          name: validation-${{ matrix.os }}-${{ matrix.target }}
+          path: provenance/
 
   sdist:
-    name: Build sdist
-    runs-on: ubuntu-latest
-
+    name: Source distribution / rebuild and install
+    needs: versions
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          command: sdist
-          args: --out dist
-
-      - name: Upload sdist
-        uses: actions/upload-artifact@v7
+          python-version: "3.12"
+      - name: Build source archive
+        run: uv run --no-project --python 3.12 --with maturin==1.15.0 maturin sdist --out dist
+      - name: Inspect and rebuild exact source archive
+        run: uv run --no-project --python 3.12 --with maturin==1.15.0 .github/scripts/validate_publish_artifacts.py rebuild dist/*.tar.gz --out rebuilt
+      - name: Validate rebuilt wheel / Python 3.12
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py validate rebuilt/*.whl --python 3.12 --polars 'polars==1.40.0' --output provenance/sdist-python312.json --source dist/*.tar.gz
+      - name: Validate rebuilt wheel / Python 3.14
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py validate rebuilt/*.whl --python 3.14 --polars 'polars==2.0.0' --output provenance/sdist-python314.json --source dist/*.tar.gz
+      - name: Record source archive hash
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py inspect dist/*.tar.gz > provenance/sdist.json
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: validation-sdist
+          path: provenance/
+
+  qualify:
+    name: Verify complete tested artifact set
+    needs: [versions, wheels, sdist]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
           path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: validation-*
+          path: validation
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+      - name: Match all six artifacts to successful validation records
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py verify dist --reports validation
 
   publish:
-    name: Collect artifacts and publish to PyPI
-    runs-on: ubuntu-latest
-    needs: [linux, windows, macos, sdist]
+    name: Publish validated artifacts to PyPI
+    # Manual runs always stop after validation, including dispatches on a tag.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: qualify
+    runs-on: ubuntu-24.04
     environment: pypi
-
     permissions:
-      # Used to sign the release artifacts
       id-token: write
-      # Used to upload release artifacts
       contents: write
-      # Used to generate artifact attestation
       attestations: write
-
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
-
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v4
         with:
-          subject-path: "wheels-*/*"
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: validation-*
+          path: validation
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+      - name: Recheck downloaded artifact metadata and hashes
+        run: uv run --no-project --python 3.12 .github/scripts/validate_publish_artifacts.py verify dist --reports validation
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "dist/*"
       - name: Publish to PyPI
-        run: uv publish --trusted-publishing always wheels-*/*
+        run: uv publish --trusted-publishing always dist/*

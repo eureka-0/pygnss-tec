@@ -8,30 +8,32 @@ Improve scalability, signal/product coverage and workflows without weakening the
 ## Current Focus
 
 - **Main goal:** qualify the 0.5.0 release by closing the confirmed silent-error paths and validating the exact distribution artifacts.
-- **Underway:** no task is currently in progress.
-- **Selected next round:** T031 and T006 address the confirmed observation-decoding and receiver-calibration failures first.
-  T009 addresses navigation validity, while T025 prepares version consistency and installed-artifact release gates independently.
-  This selection follows the 2026-10-18 release review of `2370e03`; it reuses existing task IDs.
-- **First action:** review T031's significant-header rejection policy, T006's identifiability/failure criteria, T009's constellation-specific validity rules and T025's supported artifact matrix.
-  The plans remain preliminary and the selected tasks remain `backlog` until those reviews establish executable contracts.
+- **Underway:** T025 qualifies the exact 0.5.0 distribution artifacts in GitHub Actions.
+  Its version checks, isolated artifact consumers and non-publishing entry points are implemented; hosted matrix results remain required.
+- **Delivered this round:** T031 rejects unsupported significant header updates, T006 rejects numerically unidentifiable receiver estimates, and T009 filters health/validity before nearest ephemeris selection.
+  Permanent failure controls and identifiable/valid counterparts cover these release safeguards; their broader task criteria remain open.
+- **Next action:** run the five-target ordinary 64-bit artifact matrix without publication and resolve any installation/runtime failures before considering a release tag.
+  The user excluded 32-bit and free-threaded artifacts from 0.5.0 and selected GitHub Actions for distribution builds and publication.
 - **Release scope:** deliver the reviewed safeguards and checks below before publishing.
   Full dynamic-header support, estimator optimization and broader navigation analysis retain their task acceptance criteria; partial release safeguards do not mark those tasks or M1 complete.
 - **Later work:** T032 still requires the effective-header context from T031; a rejection-only safeguard does not satisfy that dependency.
   T007/T008, stage/RSS baselines and bounded input processing remain outside this release's required fixes unless validation exposes another blocker.
 - **Delivered:** navigation reuse, standalone angles, direct TEC API migration and the earlier scientific/API deliveries are recorded in [history](docs/roadmap-history.md).
-- **Constraints:** blank-epoch events remain omitted, raw observations remain unchanged, and ordinary reader calls keep `include_lli=False` while RINEX-to-TEC opts in.
+- **Constraints:** harmless blank-epoch events remain omitted; unsafe untimed header updates raise without inventing an epoch.
+  Raw observations remain unchanged, and ordinary reader calls keep `include_lli=False` while RINEX-to-TEC opts in.
   The default `repair` mode provides temporal alignment, not certified carrier-integer recovery or natural-event classification.
 
 ## 0.5.0 Release Checks
 
-- [ ] **T031:** scientifically significant header changes are interpreted correctly or explicitly rejected before misleading observations or geometry are returned; harmless COMMENT events retain their behavior.
-- [ ] **T006:** unsupported or unidentifiable receiver-bias estimates fail explicitly with null calibrated products, while identifiable controls retain their known bias and TEC.
-- [ ] **T009:** queries without eligible broadcast ephemerides cannot produce accepted TEC from expired navigation; valid selection/tie and propagation behavior remains checked.
+- [x] **T031:** scientifically significant header changes are explicitly rejected before misleading observations or geometry are returned; harmless COMMENT events retain their behavior.
+- [x] **T006:** unsupported or unidentifiable receiver-bias estimates fail explicitly with null calibrated products, while identifiable controls retain their known bias and TEC.
+- [x] **T009:** queries without eligible broadcast ephemerides cannot produce accepted TEC from expired navigation; valid selection/tie and propagation behavior remains checked.
 - [ ] **T025:** Python/Rust manifests, lockfiles, tag, release notes and artifact metadata agree on 0.5.0; publication requires successful validation of the exact artifacts and the scientific safeguards above.
 
 Task design and release-workflow wiring can proceed independently.
 Publication requires every release check, rather than administrative completion of each task's broader scope.
-The release matrix must be exercised without publication first, including separate validation or reviewed exclusion of free-threaded and 32-bit targets.
+The release matrix must be exercised without publication first.
+The reviewed 0.5.0 matrix includes Linux x86_64/aarch64, Windows x64 and macOS x86_64/arm64 ordinary CPython ABI3 wheels; free-threaded and 32-bit targets are excluded.
 
 ## Milestones
 
@@ -92,7 +94,7 @@ Task files hold implementation plans, acceptance requirements and handoff notes.
 
 | ID | Task | Priority | Status | Dependencies | Details |
 |---|---|---|---|---|---|
-| T025 | Gate publishing on installed-artifact validation | P1 | backlog | — | [Plan](docs/tasks/T025.md) |
+| T025 | Gate publishing on installed-artifact validation | P1 | in_progress | — | [Plan](docs/tasks/T025.md) |
 | T020 | Expand independent scientific regression assets | P3 | backlog | — | [Plan](docs/tasks/T020.md) |
 | T021 | Add Rust failure-path tests and parser fuzzing | P3 | backlog | — | [Plan](docs/tasks/T021.md) |
 | T022 | Tighten typing and schema contracts | P3 | backlog | — | [Scope & acceptance](#t022-tighten-typing-and-schema-contracts) |

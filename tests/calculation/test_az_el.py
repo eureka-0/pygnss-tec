@@ -1,7 +1,7 @@
 """Independent observation geometry preserves raw rows and native batch contracts."""
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import polars as pl
 import pyarrow as pa
@@ -231,6 +231,30 @@ def test_single_receiver_history_keeps_pre_header_geometry_missing(
     assert before.height > 0
     assert before["elevation"].null_count() == before.height
     assert_frame_equal(result.select(frame.columns), frame, check_exact=True)
+
+
+def test_expired_navigation_cannot_produce_angles_or_accepted_tec(
+    small_observations, navigation
+):
+    header, data = small_observations
+    data = (
+        data.filter(pl.col("prn").cat.starts_with("G"))
+        .head(100)
+        .drop("azimuth", "elevation", strict=False)
+    )
+    future = data.with_columns((pl.col("time") + timedelta(days=366)).alias("time"))
+    angles = gt.compute_az_el(future, header, navigation).collect()
+    assert angles.height == data.height
+    assert angles["azimuth"].null_count() == data.height
+    assert angles["elevation"].null_count() == data.height
+    config = gt.TECConfig(rx_bias=None, retain_diagnostics="all")
+    result = gt.compute_tec(
+        angles, replace(header, receiver_history=()), config=config
+    ).collect()
+    assert result.height == data.height
+    assert not result["qc_valid"].any()
+    assert result["stec"].null_count() == data.height
+    assert result["vtec"].null_count() == data.height
 
 
 def test_precomputed_angles_and_parquet_match_rinex_tec(
